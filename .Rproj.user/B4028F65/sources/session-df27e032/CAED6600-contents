@@ -1,0 +1,206 @@
+---
+title: "FinalStat2"
+output: html_document
+date: "2026-08-11"
+---
+```{r helper function}
+library(ggplot2)
+
+split_rows <- function(n, train_prop = 0.80, seed) {
+  stopifnot(n >= 10L, train_prop > 0, train_prop < 1)
+  set.seed(seed)
+  train <- sort(sample.int(n, floor(train_prop * n), replace = FALSE))
+  list(train = train, test = setdiff(seq_len(n), train))
+}
+
+fit_scaler <- function(x, tol = 1e-12) {
+  x <- as.matrix(x)
+  center <- colMeans(x)
+  centered <- sweep(x, 2L, center, "-")
+  scale <- sqrt(colMeans(centered^2))
+  keep <- is.finite(scale) & scale > tol
+  if (!any(keep)) stop("No nonconstant training predictor remains.")
+  list(
+    center = center[keep],
+    scale = scale[keep],
+    keep = keep,
+    dropped = colnames(x)[!keep]
+  )
+}
+
+apply_scaler <- function(x, prep) {
+  x <- as.matrix(x)[, prep$keep, drop = FALSE]
+  x <- sweep(x, 2L, prep$center, "-")
+  sweep(x, 2L, prep$scale, "/")
+}
+
+make_foldid <- function(n, k = 5L, seed) {
+  if (k < 3L || k > n) stop("Require 3 <= k <= number of training rows.")
+  set.seed(seed)
+  sample(rep(seq_len(k), length.out = n))
+}
+
+render_table <- function(df, caption, align = NULL) {
+  if (is.null(align)) {
+    align <- paste(rep("c", ncol(df)), collapse = "")
+  }
+
+  kbl(
+    df,
+    caption = caption,
+    booktabs = TRUE,
+    align = align
+  ) |>
+    kable_styling(
+      latex_options = c("hold_position", "striped"),
+      position = "center",
+      full_width = FALSE,
+      font_size = 10
+    ) |>
+    row_spec(0, bold = TRUE)
+}
+
+plot_histogram <- function(data, title, x_title, y_title) { 
+  plot <- ggplot(
+    data.frame(Value = data), 
+    aes(x = Value)
+  ) + 
+    geom_histogram(
+      bins = 20, 
+      fill = "steelblue", 
+      color = "white", 
+      alpha = 0.8 
+    ) + 
+    geom_vline(
+      xintercept = mean(data, na.rm = TRUE), 
+      color = "blue", 
+      linetype = "dashed", 
+      linewidth = 0.8
+    ) + 
+    geom_vline(
+      xintercept = median(data, na.rm = TRUE), 
+      color = "darkgreen", 
+      linetype = "dotted", 
+      linewidth = 0.8
+    ) + 
+    labs(
+      title = title, 
+      x = x_title, 
+      y = y_title
+    ) + 
+    theme_minimal(base_size = 11) + 
+    theme(
+      plot.title = element_text(
+        hjust = 0.5, 
+        face = "bold"
+      )
+    ) 
+  
+  return(plot) 
+}
+
+
+
+```
+
+```{r read file}
+library(readxl)
+
+raw_data <- read_excel("Concrete_Data.xls")
+old_column_names <- names(raw_data)
+new_column_names <- c("Cement",
+                      "BlastFurnaceSlag",
+                      "FlyAsh",
+                      "Water",
+                      "Superplasticizer",
+                      "CoarseAggregate",
+                      "FineAggregate",
+                      "Age",
+                      "Strength")
+names(raw_data) <- new_column_names
+colSums(is.na(raw_data))
+
+```
+
+```{r histogram}
+
+for (name in new_column_names){
+  print(plot_histogram(raw_data[[name]], 
+                       paste("Distribution of", name), 
+                       name,
+                       "frequency"))
+}
+
+```
+
+```{r pairwise relationship}
+
+
+
+```
+
+```{r correlation}
+
+```
+
+```{r}
+
+transform_data <- raw_data
+
+transform_data$Cement <- sqrt(transform_data$Cement)
+transform_data$BlastFurnaceSlag <- transform_data$BlastFurnaceSlag
+transform_data$FlyAsh <- transform_data$FlyAsh 
+transform_data$Water <- transform_data$Water
+transform_data$Superplasticizer <- transform_data$Superplasticizer
+transform_data$CoarseAggregate <- transform_data$CoarseAggregate
+transform_data$FineAggregate <- transform_data$FineAggregate
+transform_data$Age <- log(transform_data$Age)
+transform_data$Strength <- sqrt(transform_data$Strength)
+
+for (name in new_column_names){
+  print(plot_histogram(transform_data[[name]], 
+                       paste("Distribution of", name) , 
+                       name,
+                       "frequency"))
+}
+
+
+```
+```{r data anova}
+
+data(ToothGrowth)
+
+ToothGrowth$supp <- factor(ToothGrowth$supp)
+ToothGrowth$dose <- factor(ToothGrowth$dose)
+
+model <- lm(len ~ supp * dose, data = ToothGrowth)
+model_trans <- lm(log(len) ~ supp * dose, data = ToothGrowth)
+
+qqnorm(residuals(model))
+qqline(residuals(model))
+
+qqnorm(residuals(model_trans))
+qqline(residuals(model_trans))
+
+
+
+plot(fitted(model), residuals(model),
+     xlab = "Fitted values",
+     ylab = "Residuals")
+
+abline(h = 0, lty = 2)
+
+plot(residuals(model),
+     type = "p",
+     xlab = "Observation order",
+     ylab = "Residual")
+
+abline(h = 0, lty = 2)
+
+library(car)
+leveneTest(log(len) ~ supp * dose, data = ToothGrowth)
+
+shapiro.test(residuals(model))
+
+
+```

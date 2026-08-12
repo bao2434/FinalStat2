@@ -1,0 +1,6 @@
+"0",""
+"0",""
+"0",""
+"0","plot(fitted(model_trans), residuals(model_trans),"
+"0","     xlab = ""Fitted values"","
+"0","     ylab = ""Residuals"")"
