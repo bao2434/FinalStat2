@@ -1,10 +1,52 @@
 ---
-title: "FinalStat2"
-output: html_document
-date: "2026-08-11"
+title: "Final Project - Applied Statistics for Engineering and Scientists II"
+subtitle: "Group 6"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+output: 
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+    fig_crop: false
+  html_document:
+    toc: true
+    toc_depth: 3
+bibliography: references.bib
+link-citations: true
+fontsize: 11pt
+geometry: margin=1in
 ---
+
+<!-- Setup -->
+
+```{r setup, include=FALSE}
+
+required_packages <- c("tidyverse", "glmnet", "knitr", "car")
+missing_packages <- required_packages[
+  !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)
+]
+if (length(missing_packages)) {
+  stop("Install the required packages before rendering: ",
+       paste(missing_packages, collapse = ", "))
+}
+
+library(tidyverse)
+library(glmnet)
+library(knitr)
+library(car)
+library(readxl)
+
+seeds <- list(
+  split = 240200L,
+  cv = 240300L,
+  features = 240400L
+)
+
+```
+
+<!-- Helper functions -->
+
 ```{r helper function}
-library(ggplot2)
 
 split_rows <- function(n, train_prop = 0.80, seed) {
   stopifnot(n >= 10L, train_prop > 0, train_prop < 1)
@@ -99,13 +141,72 @@ plot_histogram <- function(data, title, x_title, y_title) {
   return(plot) 
 }
 
+ols_stepwise_regression <- function(x_train,
+                                    y_train,
+                                    direction = "both") {
+  
+  df <- as.data.frame(x_train)
+  df$y <- y_train
+  
+  full_model <- lm(
+    y ~ .,
+    data = df
+  )
+  
+  best_model <- step(
+    full_model,
+    direction = direction,
+    trace = 0
+  )
+  
+  return (best_model)
+}
 
+fit_cv_glmnet <- function(x, y, alpha, foldid) {
+  glmnet::cv.glmnet(
+    x = x,
+    y = y,
+    family = "gaussian",
+    alpha = alpha,
+    foldid = foldid,
+    standardize = FALSE,
+    intercept = TRUE,
+    type.measure = "mse"
+  )
+}
+
+regression_metrics <- function(actual, predicted) {
+  
+  actual <- as.numeric(actual)
+  predicted <- as.numeric(predicted)
+  
+  rmse <- sqrt(
+    mean((actual - predicted)^2)
+  )
+  
+  mae <- mean(
+    abs(actual - predicted)
+  )
+  
+  r2 <- 1 - (
+    sum((actual - predicted)^2) /
+    sum((actual - mean(actual))^2)
+  )
+  
+  data.frame(
+    RMSE = rmse,
+    MAE = mae,
+    R2 = r2
+  )
+}
 
 ```
 
-```{r read file}
-library(readxl)
+# Part I - Concrete Compressive Strength
 
+## Exploratory Data Analysis
+
+```{r read file}
 raw_data <- read_excel("Concrete_Data.xls")
 old_column_names <- names(raw_data)
 new_column_names <- c("Cement",
@@ -133,7 +234,7 @@ for (name in new_column_names){
 
 ```
 
-```{r pairwise relationship}
+```{r pairwise-relationship}
 
 
 
@@ -141,9 +242,22 @@ for (name in new_column_names){
 
 ```{r correlation}
 
+
+
 ```
 
-```{r}
+## Data Cleaning
+
+```{r data-processing}
+
+x_train
+y_train
+x_test
+y_test
+
+```
+
+```{r transform}
 
 transform_data <- raw_data
 
@@ -164,8 +278,327 @@ for (name in new_column_names){
                        "frequency"))
 }
 
+```
+
+## Feature Selection
+
+We choose VIF screening and stepwise selection
+
+Reason: 
+
+### VIF Screening
+
+```{r vif}
+
+library(car)
+
+train_data <- data.frame(
+  x_train,
+  y_train = y_train
+)
+
+vif_model <- lm(
+  y_train ~ .,
+  data = train_data
+)
+
+vif_values <- car::vif(vif_model)
+
+vif_table <- data.frame(
+  Predictor = names(vif_values),
+  VIF = as.numeric(vif_values)
+)
+
+vif_table <- vif_table[order(-vif_table$VIF), ]
+
+vif_table$VIF <- round(vif_table$VIF, 2)
+
+vif_table$Assessment <- cut(
+  vif_table$VIF,
+  breaks = c(-Inf, 5, 10, Inf),
+  labels = c("Acceptable", "High", "Very High")
+)
+
+render_table(
+  vif_table,
+  caption = "Variance Inflation Factor (VIF) of Training Predictors"
+)
 
 ```
+Compare to correlation which was analyzed before.
+
+Cement, BlastFurnaceSlag, FlyAsh, Water, FineAggregate: VIF high -> Emphasize demand for regularization
+
+### Stepwise selection
+
+```{r stepwise}
+
+stepwise_model <- ols_stepwise_regression(
+  x_train = x_train,
+  y_train = y_train,
+  direction = "both"
+)
+
+all_predictors <- colnames(x_train)
+
+selected_predictors <- names(coef(stepwise_model))[-1]
+
+selection_table <- data.frame(
+  Predictor = all_predictors,
+  Selected = ifelse(
+    all_predictors %in% selected_predictors,
+    "Yes",
+    "No"
+  )
+)
+
+render_table(
+  selection_table,
+  caption = "Feature Selection Results from Stepwise Regression"
+)
+
+```
+
+## Modeling with Regularization
+
+Baseline model: Linear Regression
+
+Regularized models: Ridge, Lasso, Elastic Net
+
+### Linear Regression
+
+```{r linear}
+
+# Prepare training data
+train_data <- data.frame(
+  x_train,
+  y = y_train
+)
+
+# Fit baseline OLS model
+ols_model <- lm(
+  y ~ .,
+  data = train_data
+)
+
+# Extract coefficients
+ols_coef <- data.frame(
+  Predictor = names(coef(ols_model)),
+  Coefficient = as.numeric(coef(ols_model))
+)
+
+ols_coef$Coefficient <- round(
+  ols_coef$Coefficient,
+  4
+)
+
+# Display coefficients
+render_table(
+  ols_coef,
+  caption = "OLS Baseline Model Coefficients"
+)
+
+```
+
+### Ride regression
+
+```{r ridge}
+
+ridge_cv <- fit_cv_glmnet(
+  x = as.matrix(x_train),
+  y = y_train,
+  alpha = 0,
+  foldid = foldid
+)
+
+ridge_lambda <- ridge_cv$lambda.min
+
+ridge_lambda
+
+ridge_coef <- data.frame(
+  Predictor = rownames(as.matrix(
+    coef(ridge_cv, s = "lambda.min")
+  )),
+  Coefficient = as.numeric(
+    coef(ridge_cv, s = "lambda.min")
+  )
+)
+
+ridge_coef$Coefficient <- round(
+  ridge_coef$Coefficient,
+  4
+)
+
+render_table(
+  ridge_coef,
+  caption = "Ridge Regression Coefficients"
+)
+
+```
+
+### Lasso regression
+
+```{r lasso}
+
+lasso_cv <- fit_cv_glmnet(
+  x = as.matrix(x_train),
+  y = y_train,
+  alpha = 1,
+  foldid = foldid
+)
+
+lasso_lambda <- lasso_cv$lambda.min
+
+lasso_lambda
+
+lasso_coef <- data.frame(
+  Predictor = rownames(as.matrix(
+    coef(lasso_cv, s = "lambda.min")
+  )),
+  Coefficient = as.numeric(
+    coef(lasso_cv, s = "lambda.min")
+  )
+)
+
+lasso_coef$Coefficient <- round(
+  lasso_coef$Coefficient,
+  4
+)
+
+render_table(
+  lasso_coef,
+  caption = "Lasso Regression Coefficients"
+)
+
+```
+
+### Elastic Net regression
+
+```{r elastic-net}
+
+alpha_grid <- seq(
+  0.1,
+  0.9,
+  by = 0.1
+)
+
+elastic_results <- lapply(
+  alpha_grid,
+  function(alpha) {
+    
+    cv_fit <- fit_cv_glmnet(
+      x = as.matrix(x_train),
+      y = y_train,
+      alpha = alpha,
+      foldid = foldid
+    )
+    
+    data.frame(
+      alpha = alpha,
+      lambda = cv_fit$lambda.min,
+      cv_mse = min(cv_fit$cvm)
+    )
+  }
+)
+
+elastic_results <- do.call(
+  rbind,
+  elastic_results
+)
+
+best_elastic <- elastic_results[
+  which.min(elastic_results$cv_mse),
+]
+
+best_elastic
+
+elastic_cv <- fit_cv_glmnet(
+  x = as.matrix(x_train),
+  y = y_train,
+  alpha = best_elastic$alpha,
+  foldid = foldid
+)
+
+elastic_coef <- data.frame(
+  Predictor = rownames(as.matrix(
+    coef(elastic_cv, s = "lambda.min")
+  )),
+  Coefficient = as.numeric(
+    coef(elastic_cv, s = "lambda.min")
+  )
+)
+
+elastic_coef$Coefficient <- round(
+  elastic_coef$Coefficient,
+  4
+)
+
+render_table(
+  elastic_coef,
+  caption = "Elastic Net Regression Coefficients"
+)
+
+```
+
+## Evaluation
+
+Metrics: RMSE / MAE / $R^2$
+
+Reason:
+
+```{r evaluation}
+
+ols_pred <- predict(
+  ols_model,
+  newdata = data.frame(x_test)
+)
+
+ols_metrics <- regression_metrics(
+  actual = y_test,
+  predicted = ols_pred
+)
+
+ridge_pred <- predict(
+  ridge_cv,
+  newx = as.matrix(x_test),
+  s = "lambda.min"
+)
+
+ridge_metrics <- regression_metrics(
+  actual = y_test,
+  predicted = ridge_pred
+)
+
+lasso_pred <- predict(
+  lasso_cv,
+  newx = as.matrix(x_test),
+  s = "lambda.min"
+)
+
+lasso_metrics <- regression_metrics(
+  y_test,
+  lasso_pred
+)
+
+elastic_pred <- predict(
+  elastic_cv,
+  newx = as.matrix(x_test),
+  s = "lambda.min"
+)
+
+elastic_metrics <- regression_metrics(
+  actual = y_test,
+  predicted = elastic_pred
+)
+
+```
+
+Selected model:
+
+Reason:
+
+# Part II - ToothGrowth
+
 ```{r data anova}
 
 data(ToothGrowth)

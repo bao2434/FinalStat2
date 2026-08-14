@@ -1,8 +1,0 @@
-"0",""
-"0","for (name in new_column_names){"
-"0","  print(plot_histogram(raw_data[[name]], "
-"0","                       paste(""Distribution of"", name), "
-"0","                       name,"
-"0","                       ""frequency""))"
-"0","}"
-"0",""
