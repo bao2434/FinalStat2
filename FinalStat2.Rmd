@@ -21,7 +21,7 @@ geometry: margin=1in
 
 ```{r setup, include=FALSE}
 
-required_packages <- c("tidyverse", "glmnet", "knitr", "car")
+required_packages <- c("tidyverse", "glmnet", "knitr", "kableExtra" , "car")
 missing_packages <- required_packages[
   !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)
 ]
@@ -34,6 +34,7 @@ library(tidyverse)
 library(glmnet)
 library(knitr)
 library(car)
+library(kableExtra)
 library(readxl)
 
 seeds <- list(
@@ -206,7 +207,7 @@ regression_metrics <- function(actual, predicted) {
 
 ## Exploratory Data Analysis
 
-```{r read file}
+```{r input}
 raw_data <- read_excel("Concrete_Data.xls")
 old_column_names <- names(raw_data)
 new_column_names <- c("Cement",
@@ -221,9 +222,12 @@ new_column_names <- c("Cement",
 names(raw_data) <- new_column_names
 colSums(is.na(raw_data))
 
+response <- "Strength"
+predictor <- setdiff(names(raw_data), response)
+
 ```
 
-```{r histogram}
+```{r distribution}
 
 for (name in new_column_names){
   print(plot_histogram(raw_data[[name]], 
@@ -236,30 +240,63 @@ for (name in new_column_names){
 
 ```{r pairwise-relationship}
 
-
-
 ```
 
 ```{r correlation}
 
+# Keep only numeric predictors
+numeric_predictors <- predictors[
+  sapply(raw_data[predictors], is.numeric)
+]
 
+# Correlation matrix among predictors
+cor_matrix <- cor(
+  raw_data[numeric_predictors],
+  use = "pairwise.complete.obs"
+)
+
+# Display correlation matrix
+round(cor_matrix, 2)
 
 ```
 
 ## Data Cleaning
 
-```{r data-processing}
+```{r split, echo=FALSE}
 
-x_train
-y_train
-x_test
-y_test
+split <- split_rows(
+    n = nrow(raw_data),
+    train_prop = 0.80,
+    seed = seeds$split
+)
 
+train_id <- split$train
+test_id <- split$test
+
+stopifnot(
+    length(intersect(train_id, test_id)) == 0L
+)
+
+train_data <- raw_data[train_id, , drop=FALSE]
+
+foldid <- make_foldid(
+    n = nrow(train_data),
+    k = 5L,
+    seed = seeds$cv
+)
+
+```
+
+```{r missing-value}
+```
+
+
+```{r outlier}
 ```
 
 ```{r transform}
 
-transform_data <- raw_data
+transform_data <- train_data
 
 transform_data$Cement <- sqrt(transform_data$Cement)
 transform_data$BlastFurnaceSlag <- transform_data$BlastFurnaceSlag
@@ -278,19 +315,44 @@ for (name in new_column_names){
                        "frequency"))
 }
 
+# Apply to all dataset
+
+raw_data$Cement <- sqrt(raw_data$Cement)
+raw_data$BlastFurnaceSlag <- raw_data$BlastFurnaceSlag
+raw_data$FlyAsh <- raw_data$FlyAsh
+raw_data$Water <- (raw_data$Water)^2
+raw_data$Superplasticizer <- raw_data$Superplasticizer
+raw_data$CoarseAggregate <- raw_data$CoarseAggregate
+raw_data$FineAggregate <- raw_data$FineAggregate
+raw_data$Age <- log(raw_data$Age)
+raw_data$Strength <- sqrt(raw_data$Strength)
+
+```
+
+```{r scaling}
+
+x_raw <- as.matrix(raw_data[, predictors, drop = FALSE])
+y_raw <- raw_data[[response]]
+
+x_prep <- fit_scaler(x_raw[train_id, , drop = FALSE])
+x_raw_scaled <- apply_scaler(x_raw, x_prep)
+
+x_train <- x_raw_scaled[train_id, , drop = FALSE]
+x_test <- x_raw_scaled[test_id, , drop = FALSE]
+y_train <- y_raw[train_id]
+y_test <- y_raw[test_id]
+
 ```
 
 ## Feature Selection
 
-We choose VIF screening and stepwise selection
-
-Reason: 
+We use **Variance Inflation Factor (VIF)** screening and stepwise selection as selection methods. That is because:
+- Although most pairwise correlations among predictors are low ($|r∣<0.45$, except $r(Water, Superplasticizer)=−0.66$). However, pairwise correlation alone may not capture multicollinearity involving multiple predictors. Therefore, VIF is needed to to assess the multicollinearity level of the predictors.
+- VIF only assesses multicollinearity and does not determine which predictors should be retained in the final model. Therefore, stepwise selection is also used to identify a more parsimonious set of predictors based on model fit and complexity.
 
 ### VIF Screening
 
-```{r vif}
-
-library(car)
+```{r vif, echo=FALSE}
 
 train_data <- data.frame(
   x_train,
@@ -325,13 +387,12 @@ render_table(
 )
 
 ```
-Compare to correlation which was analyzed before.
 
-Cement, BlastFurnaceSlag, FlyAsh, Water, FineAggregate: VIF high -> Emphasize demand for regularization
+The VIF results show that Cement (7.28), BlastFurnaceSlag (7.15), FineAggregate (6.65), Water (6.44), and FlyAsh (6.09) have relatively high VIF values, indicating the presence of multicollinearity among these predictors. Although VIF levels of above predictors are high, they only measures the degree of multicollinearity and does not assess the contribution of a predictor to the regression model. Therefore, a high VIF does not provide sufficient justification for removing a variable. In addition the model contains only seven predictors, so we retain these variables at this stage and use stepwise selection to further evaluate the contribution of each predictors to the model.
 
 ### Stepwise selection
 
-```{r stepwise}
+```{r stepwise, echo=FALSE}
 
 stepwise_model <- ols_stepwise_regression(
   x_train = x_train,
@@ -359,46 +420,62 @@ render_table(
 
 ```
 
+No variables were removed by the stepwise selection, indicating that removing any predictor would substantially reduce the model fit. Therefore, all predictors are retained, and regularization methods are applied to mitigate the effects of multicollinearity.
+
+
 ## Modeling with Regularization
 
-Baseline model: Linear Regression
+We consider Linear Regression as the baseline model and apply Ridge, Lasso, and Elastic Net as regularized alternatives:
 
-Regularized models: Ridge, Lasso, Elastic Net
+- Linear Regression: Used as the baseline model to provide a reference for evaluating the regularized models.
+
+- Ridge Regression: Used to reduce the impact of multicollinearity by shrinking correlated predictors' coefficients without removing variables.
+
+- Lasso Regression: Used for automatic variable selection by shrinking some coefficients exactly to zero.
+
+- Elastic Net: Used to combine Ridge's stability with Lasso's variable selection, especially for correlated predictors.
 
 ### Linear Regression
 
 ```{r linear}
 
-# Prepare training data
 train_data <- data.frame(
   x_train,
   y = y_train
 )
 
-# Fit baseline OLS model
 ols_model <- lm(
   y ~ .,
   data = train_data
 )
 
-# Extract coefficients
+ols_summary <- summary(ols_model)$coefficients
+
+p_values <- ols_summary[, "Pr(>|t|)"]
+
 ols_coef <- data.frame(
-  Predictor = names(coef(ols_model)),
-  Coefficient = as.numeric(coef(ols_model))
+  Predictor = rownames(ols_summary),
+  Coefficient = round(ols_summary[, "Estimate"], 4),
+  P_value = ifelse(
+    p_values < 0.001,
+    "< 0.001",
+    sprintf("%.4f", p_values)
+  )
 )
 
-ols_coef$Coefficient <- round(
-  ols_coef$Coefficient,
-  4
-)
+rownames(ols_coef) <- NULL
 
-# Display coefficients
 render_table(
   ols_coef,
   caption = "OLS Baseline Model Coefficients"
 )
 
+par(mfrow = c(2, 2))
+plot(ols_model)
+
 ```
+
+The p-value of Superplasticizer is 0.0842 > 0.05, indicating that its coefficient is not statistically significant at the $\alpha=0.05$ level. In addition, Cement, BlastFurnaceSlag, FlyAsh, Water, and FineAggregate have relatively high VIF values and large coefficient estimates, suggesting that their OLS coefficients may be unstable due to multicollinearity.
 
 ### Ride regression
 
@@ -410,10 +487,6 @@ ridge_cv <- fit_cv_glmnet(
   alpha = 0,
   foldid = foldid
 )
-
-ridge_lambda <- ridge_cv$lambda.min
-
-ridge_lambda
 
 ridge_coef <- data.frame(
   Predictor = rownames(as.matrix(
@@ -436,9 +509,11 @@ render_table(
 
 ```
 
+Most coefficients are shrunk, particularly for predictors with high VIF values, indicating that the regularization penalty effectively reduces the impact of multicollinearity. Water increases in magnitude, while CoarseAggregate and FineAggregate decrease in magnitude. This suggests coefficient redistribution among correlated predictors under Ridge regularization.
+
 ### Lasso regression
 
-```{r lasso}
+```{r lasso, echo=FALSE}
 
 lasso_cv <- fit_cv_glmnet(
   x = as.matrix(x_train),
@@ -446,10 +521,6 @@ lasso_cv <- fit_cv_glmnet(
   alpha = 1,
   foldid = foldid
 )
-
-lasso_lambda <- lasso_cv$lambda.min
-
-lasso_lambda
 
 lasso_coef <- data.frame(
   Predictor = rownames(as.matrix(
@@ -472,9 +543,11 @@ render_table(
 
 ```
 
+All predictors retain non-zero coefficients, so Lasso does not remove any variables at the selected $\lambda$. This is consistent with the stepwise result, where no predictors were removed. Compared with OLS, most coefficients are slightly reduced, e.g. Cement 1.2567-1.2299, BlastFurnaceSlag 0.8907-0.8641, and FlyAsh 0.5697-0.5468. This indicates that the L1 penalty provides some coefficient shrinkage, but the effect is relatively mild. Lasso coefficients remain much closer to OLS than Ridge coefficients. This suggests that the selected Lasso penalty is relatively weak and that Lasso does not substantially alter the coefficient structure of the model.
+
 ### Elastic Net regression
 
-```{r elastic-net}
+```{r elastic-net, echo=FALSE}
 
 alpha_grid <- seq(
   0.1,
@@ -540,13 +613,17 @@ render_table(
 
 ```
 
+All predictors retain non-zero coefficients, so Elastic Net does not remove any variables like Lasso at the selected $\lambda$. Besides, the coefficients are only slightly smaller than OLS and remain very close to the Lasso estimates, indicating a relatively weak regularization effect. With $\alpha = 0.1$, the L2 component dominates the penalty, making Elastic Net more Ridge-like while still incorporating a small L1 component.
+
 ## Evaluation
 
-Metrics: RMSE / MAE / $R^2$
+We use RMSE, MAE, and $R^2$ to evaluate the regression models. That is because:
 
-Reason:
+- RMSE: Measures the average prediction error while giving greater weight to large errors, making it useful for detecting models with substantial prediction errors.
+- MAE: Measures the average absolute prediction error and provides an intuitive measure of the typical prediction error in the original response scale.
+- $R^2$: Measures the proportion of variation in the response explained by the model, providing an overall assessment of model fit.
 
-```{r evaluation}
+```{r evaluation, echo=FALSE}
 
 ols_pred <- predict(
   ols_model,
@@ -591,11 +668,47 @@ elastic_metrics <- regression_metrics(
   predicted = elastic_pred
 )
 
+evaluation_table <- data.frame(
+  Model = c(
+    "OLS",
+    "Ridge",
+    "Lasso",
+    "Elastic Net"
+  ),
+  RMSE = c(
+    ols_metrics$RMSE,
+    ridge_metrics$RMSE,
+    lasso_metrics$RMSE,
+    elastic_metrics$RMSE
+  ),
+  MAE = c(
+    ols_metrics$MAE,
+    ridge_metrics$MAE,
+    lasso_metrics$MAE,
+    elastic_metrics$MAE
+  ),
+  R2 = c(
+    ols_metrics$R2,
+    ridge_metrics$R2,
+    lasso_metrics$R2,
+    elastic_metrics$R2
+  )
+)
+
+evaluation_table$RMSE <- round(evaluation_table$RMSE, 4)
+evaluation_table$MAE <- round(evaluation_table$MAE, 4)
+evaluation_table$R2 <- round(evaluation_table$R2, 4)
+
+render_table(
+  evaluation_table,
+  caption = "Test Set Performance Comparison"
+)
+
 ```
 
-Selected model:
+All models are compared on the same held-out test set to ensure a fair evaluation. The results show that Lasso and Elastic Net achieve the best performance, with an RMSE of 0.6289 and $R^2$=0.7898, followed very closely by OLS with an RMSE of 0.6293 and $R^2$=0.7895. The differences are very small, indicating that regularization provides only a marginal improvement in generalization for this dataset.
 
-Reason:
+The results also illustrate the bias–variance trade-off. OLS has no regularization, resulting in low bias but potentially higher variance due to multicollinearity. Lasso and Elastic Net introduce regularization, slightly increasing bias while reducing coefficient variance, which may explain their marginally better test performance. In contrast, Ridge produces a higher RMSE of 0.6446, suggesting that its selected level of shrinkage introduces more bias than the reduction in variance can compensate for.
 
 # Part II - ToothGrowth
 
