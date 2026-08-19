@@ -36,6 +36,7 @@ library(knitr)
 library(car)
 library(kableExtra)
 library(readxl)
+library(ggplot2)
 
 seeds <- list(
   split = 240200L,
@@ -716,32 +717,312 @@ The results also illustrate the bias–variance trade-off. OLS has no regulariza
 
 data(ToothGrowth)
 
-ToothGrowth$supp <- factor(ToothGrowth$supp)
-ToothGrowth$dose <- factor(ToothGrowth$dose)
+ToothGrowth$supp <- as.factor(ToothGrowth$supp)
+ToothGrowth$dose <- as.factor(ToothGrowth$dose)
+
+```
+
+## ANOVA analysis
+### Result
+
+```{r anova}
+
+data(ToothGrowth)
+
+ToothGrowth$supp <- as.factor(ToothGrowth$supp)
+ToothGrowth$dose <- as.factor(ToothGrowth$dose)
+
+model <- aov(len ~ supp * dose, data = ToothGrowth)
+
+anova_table <- anova(model)
+
+anova_df <- data.frame(
+  Source = rownames(anova_table),
+  SS = anova_table$`Sum Sq`,
+  df = anova_table$Df,
+  MS = anova_table$`Mean Sq`,
+  F = anova_table$`F value`,
+  p.value = anova_table$`Pr(>F)`
+)
+
+total_row <- data.frame(
+  Source = "Total",
+  SS = sum(anova_df$SS, na.rm = TRUE),
+  df = nrow(ToothGrowth) - 1,
+  MS = NA,
+  F = NA,
+  p.value = NA
+)
+
+
+anova_df <- rbind(anova_df, total_row)
+
+render_table(anova_df, "ANOVA result")
+
+
+```
+The ANOVA results show that both supplement type and Vitamin C dose have significant effects on tooth length, with p-values $$< 0.05$$. This indicates that mean tooth length differs between the two supplement types and among the different Vitamin C dose levels. Furthermore, the interaction between supplement type and Vitamin C dose is also significant ($$p<0.05$$), indicating that the effect of one factor on tooth length depends on the level of the other factor. In particular, the effect of Vitamin C dose on tooth length differs depending on whether the supplement is administered as vitamin C (VC) or orange juice (OJ).
+
+### Model adequacy
+
+```{r anova adequacy}
 
 model <- lm(len ~ supp * dose, data = ToothGrowth)
-model_trans <- lm(log(len) ~ supp * dose, data = ToothGrowth)
 
 qqnorm(residuals(model))
 qqline(residuals(model))
 
-qqnorm(residuals(model_trans))
-qqline(residuals(model_trans))
+test <- shapiro.test(residuals(model))
 
+shapiro_result <- data.frame(
+  W = unname(test$statistic),
+  p_value = test$p.value
+)
 
+rownames(shapiro_result) <- NULL
 
-plot(fitted(model_trans), residuals(model_trans),
+render_table(shapiro_result, "Result of Shapiro-Wilk Test")
+
+```
+The normal Q-Q plot shows that the points are relatively close to the reference line, suggesting that the residuals are approximately normally distributed. Furthermore, the Shapiro-Wilk test, with the null hypothesis that the residuals are normally distributed, produced a p-value of $0.6694$, so we fail to reject the null hypothesis. Therefore, these results suggest that **the normality assumption is satisfied**.
+
+```{r variance homogeneity}
+
+plot(fitted(model_trans), residuals(model),
      xlab = "Fitted values",
+     ylab = "Residuals",
+     main = "Residual Plot")
+
+abline(h = 0, lty = 2)
+
+library(car)
+
+levene_result <- as.data.frame(
+  leveneTest(len ~ supp * dose, data = ToothGrowth)
+)
+
+levene_result <- levene_result[1, , drop = FALSE]
+row
+render_table(levene_result, "Result of Levene's Test")
+
+```
+By examining the residual plot, we observe that the residuals are distributed around the reference line with a roughly equal vertical spread across the fitted values, suggesting that the variances are approximately constant. Furthermore, Levene's test, which has the null hypothesis that all groups have equal variances, produces a p-value of $0.1484$. Since this p-value is greater than $0.05$, we fail to reject the null hypothesis. Therefore, these results suggest that **the assumption of homogeneity of variance is satisfied**.
+
+```{r independence}
+
+plot(residuals(model),
+     type = "p",
+     main = "Residuals vs Observation Order",
+     xlab = "Observation order",
      ylab = "Residuals")
 
 abline(h = 0, lty = 2)
 
-plot(residuals(model_trans),
-     type = "p",
-     xlab = "Observation order",
-     ylab = "Residual")
+library(lmtest)
 
-abline(h = 0, lty = 2)
+test <- dwtest(model)
 
+dw_result <- data.frame(
+  DW = unname(test$statistic),
+  p_value = test$p.value
+)
+
+render_table(dw_result, "Result of Durbin–Watson Test")
 
 ```
+When plotting residuals against observation order, the points are randomly distributed around zero with no apparent systematic pattern, suggesting that the residuals are independent. The Durbin–Watson test, which has the null hypothesis that the residuals are independent, gives a p-value of $$0.2868$$. Since $$p>0.05$$, we fail to reject the null hypothesis. Therefore, there is no significant evidence of autocorrelation, **supporting the assumption of independence**.
+
+## Post-hoc analysis
+
+The ANOVA results indicate significant effects for both factors and their interaction. However, since supplement type has only two levels, there is no need for a post-hoc pairwise comparison for this factor. Therefore, Tukey’s HSD test will be performed for **dose** and for the **combination of supplement type and dose**.
+
+### Tukey’s HSD on dose
+
+```{r HSD on dose}
+
+model <- aov(len ~ supp * dose, data = ToothGrowth)
+tukey_dose <- as.data.frame(TukeyHSD(model, "dose")$dose)
+mean_len <- mean(ToothGrowth$len)
+tukey_dose$diff_mean <- tukey_dose$diff / mean_len
+render_table(tukey_dose, "Resutls of Tukey's HSD on Dose")
+
+```
+$$
+\text{diff_mean}
+=
+\frac{\text{diff}}
+{\text{ mean of tooth length}}
+$$
+The results show that all three pairwise comparisons have p-values below $$0.05$$, indicating that the differences between all dose levels are statistically significant. Furthermore, since all differences in means are positive, higher doses of Vitamin C are associated with greater tooth length. Increasing the dose from 0.5 to 2 mg resulted in a great increase of approximately $$0.824$$ times the mean tooth length, indicating a substantial effect of dose.
+
+### Tukey's HSD on interaction between supplement type and dose
+
+```{r HSD on both}
+
+ToothGrowth$treatment <- interaction(
+  ToothGrowth$supp,
+  ToothGrowth$dose
+)
+
+model_interaction <- aov(
+  len ~ treatment,
+  data = ToothGrowth
+)
+
+# Tukey HSD
+tukey_interaction <- as.data.frame(
+  TukeyHSD(model_interaction)$treatment
+)
+
+# Relative difference: diff / mean tooth length
+mean_len <- mean(ToothGrowth$len)
+
+tukey_interaction$diff_mean <- 
+  tukey_interaction$diff / mean_len
+
+render_table(tukey_interaction, "Results of Tukey's HSD on Interaction")
+
+tukey_interaction$comparison <- rownames(tukey_interaction)
+
+# Split comparison into the two groups
+tukey_interaction$Group1 <- sub(
+  "-.*",
+  "",
+  tukey_interaction$comparison
+)
+
+tukey_interaction$Group2 <- sub(
+  ".*-",
+  "",
+  tukey_interaction$comparison
+)
+
+# All treatment groups
+groups <- c(
+  "VC.0.5",
+  "VC.1",
+  "VC.2",
+  "OJ.0.5",
+  "OJ.1",
+  "OJ.2"
+)
+
+# Create complete 6 x 6 grid
+heatmap_data <- expand.grid(
+  Group1 = groups,
+  Group2 = groups
+)
+
+heatmap_data$diff_mean <- NA
+heatmap_data$p_adj <- NA
+
+# Fill the matrix
+for (i in 1:nrow(tukey_interaction)) {
+
+  g1 <- tukey_interaction$Group1[i]
+  g2 <- tukey_interaction$Group2[i]
+
+  relative_diff <- tukey_interaction$diff_mean[i]
+  p_value <- tukey_interaction$`p adj`[i]
+
+  # Original direction
+  heatmap_data$diff_mean[
+    heatmap_data$Group1 == g1 &
+    heatmap_data$Group2 == g2
+  ] <- relative_diff
+
+  heatmap_data$p_adj[
+    heatmap_data$Group1 == g1 &
+    heatmap_data$Group2 == g2
+  ] <- p_value
+
+  # Reverse direction
+  heatmap_data$diff_mean[
+    heatmap_data$Group1 == g2 &
+    heatmap_data$Group2 == g1
+  ] <- -relative_diff
+
+  heatmap_data$p_adj[
+    heatmap_data$Group1 == g2 &
+    heatmap_data$Group2 == g1
+  ] <- p_value
+}
+
+# Only significant differences get the colour scale.
+# Non-significant differences become NA -> grey.
+heatmap_data$fill_value <- ifelse(
+  heatmap_data$p_adj < 0.05,
+  heatmap_data$diff_mean,
+  NA
+)
+
+# Set desired order
+heatmap_data$Group1 <- factor(
+  heatmap_data$Group1,
+  levels = groups
+)
+
+heatmap_data$Group2 <- factor(
+  heatmap_data$Group2,
+  levels = groups
+)
+
+# Heatmap
+ggplot2::ggplot(
+  heatmap_data,
+  ggplot2::aes(
+    x = Group1,
+    y = Group2
+  )
+) +
+  ggplot2::geom_tile(
+    ggplot2::aes(fill = fill_value),
+    color = "white"
+  ) +
+  ggplot2::geom_text(
+    ggplot2::aes(
+      label = ifelse(
+        is.na(diff_mean),
+        "",
+        sprintf("%.2f", diff_mean)
+      )
+    ),
+    size = 3
+  ) +
+  ggplot2::scale_fill_gradient2(
+    low = "#2166AC",
+    mid = "white",
+    high = "#B2182B",
+    midpoint = 0,
+    na.value = "grey80",
+    name = "Difference / Mean"
+  ) +
+  ggplot2::coord_fixed() +
+  ggplot2::labs(
+    title = "Tukey HSD Relative Mean Differences",
+    subtitle = "Non-significant differences are greyed out",
+    x = NULL,
+    y = NULL
+  ) +
+  ggplot2::theme_minimal(base_size = 11) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(
+      hjust = 0.5,
+      face = "bold"
+    ),
+    plot.subtitle = ggplot2::element_text(
+      hjust = 0.5
+    ),
+    axis.text.x = ggplot2::element_text(
+      angle = 45,
+      hjust = 1
+    ),
+    panel.grid = ggplot2::element_blank()
+  )
+
+```
+Except for the comparisons VC.1 vs OJ.0.5, OJ.2 vs OJ.1, VC.2 vs OJ.1, and VC.2 vs OJ.2, all other pairwise comparisons are statistically significant ($$p<0.05$$). The heatmap shows the mean difference in tooth length between the group in each row and the group in each column, with non-significant differences greyed out.
+
+From the heatmap, we can observe that higher doses are generally associated with greater tooth length. Additionally, supplementation with orange juice tends to result in longer tooth length than vitamin C at comparable doses. However, this trend is less consistent when there is a large difference in dose, such as between 0.5 mg and 2 mg, where the effect of dose appears to outweigh the effect of supplement type.
+
+For orange juice supplementation, the variation in tooth length across different doses is less pronounced than for ascorbic acid. In particular, when the dose increases from 0.5 mg to 2 mg, ascorbic acid produces a difference equivalent to $$0.97$$ times the mean tooth length, whereas orange juice produces a smaller difference of $$0.68$$8 times the mean tooth length.
