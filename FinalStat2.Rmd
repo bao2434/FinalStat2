@@ -307,6 +307,14 @@ transform_data$FineAggregate <- transform_data$FineAggregate
 transform_data$Age <- log(transform_data$Age)
 transform_data$Strength <- sqrt(transform_data$Strength)
 
+binary_encode <- function(x) {
+  factor(ifelse(x > 0, 1, 0))
+}
+
+transform_data$BlastFurnaceSlag <- binary_encode(transform_data$BlastFurnaceSlag)
+transform_data$FlyAsh <- binary_encode(transform_data$FlyAsh)
+transform_data$Superplasticizer <- binary_encode(transform_data$Superplasticizer)
+
 for (name in new_column_names){
   print(plot_histogram(transform_data[[name]], 
                        paste("Distribution of", name) , 
