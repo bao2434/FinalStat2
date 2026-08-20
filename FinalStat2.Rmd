@@ -1,8 +1,8 @@
 ---
 title: "Final Project - Applied Statistics for Engineering and Scientists II"
-subtitle: "Group 6"
+subtitle: Group 6
 date: "`r format(Sys.Date(), '%Y-%m-%d')`"
-output: 
+output:
   pdf_document:
     toc: true
     number_sections: true
@@ -19,7 +19,16 @@ geometry: margin=1in
 
 ```{r setup, include=FALSE}
 
-required_packages <- c("tidyverse", "glmnet", "knitr", "kableExtra" , "car")
+required_packages <- c(
+  "tidyverse",
+  "glmnet",
+  "knitr",
+  "kableExtra",
+  "car",
+  "readxl",
+  "corrplot",
+  "patchwork"
+)
 missing_packages <- required_packages[
   !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)
 ]
@@ -35,6 +44,10 @@ library(car)
 library(kableExtra)
 library(readxl)
 library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(corrplot)
+
 
 seeds <- list(
   split = 240200L,
@@ -46,7 +59,7 @@ seeds <- list(
 
 <!-- Helper functions -->
 
-```{r helper function}
+```{r helper function, include=FALSE}
 
 split_rows <- function(n, train_prop = 0.80, seed) {
   stopifnot(n >= 10L, train_prop > 0, train_prop < 1)
@@ -108,7 +121,7 @@ plot_histogram <- function(data, title, x_title, y_title) {
     aes(x = Value)
   ) + 
     geom_histogram(
-      bins = 20, 
+      bins = 30, 
       fill = "steelblue", 
       color = "white", 
       alpha = 0.8 
@@ -169,7 +182,7 @@ fit_cv_glmnet <- function(x, y, alpha, foldid) {
     family = "gaussian",
     alpha = alpha,
     foldid = foldid,
-    standardize = FALSE,
+    standardize = TRUE,
     intercept = TRUE,
     type.measure = "mse"
   )
@@ -202,11 +215,34 @@ regression_metrics <- function(actual, predicted) {
 
 ```
 
+\newpage
+
 # Part I - Concrete Compressive Strength
-
 ## Exploratory Data Analysis
+**Variable Description**
 
-```{r input}
+The Concrete Compressive Strength dataset describes concrete mixtures based on their material composition and age. The objective is to explain and predict concrete compressive strength, which represents the amount of compressive load the concrete can withstand before failure.
+
+- **Cement:** Amount of cement in the concrete mixture (kg/m³).
+
+- **BlastFurnaceSlag:** Amount of blast-furnace slag in the mixture (kg/m³).
+
+- **FlyAsh:** Amount of fly ash in the mixture (kg/m³).
+
+- **Water:** Amount of water used in the mixture (kg/m³).
+
+- **Superplasticizer:** Amount of superplasticizer used in the mixture (kg/m³).
+
+- **CoarseAggregate:** Amount of coarse aggregate, such as gravel or crushed stone (kg/m³).
+
+- **FineAggregate:** Amount of fine aggregate, mainly sand (kg/m³).
+
+- **Age:** Age of the concrete at the time of strength measurement, measured in days.
+
+- **Strength:** Concrete compressive strength measured in MPa. This is the response variable to be predicted.
+
+
+```{r input, include=FALSE}
 raw_data <- read_excel("Concrete_Data.xls")
 old_column_names <- names(raw_data)
 new_column_names <- c("Cement",
@@ -219,14 +255,20 @@ new_column_names <- c("Cement",
                       "Age",
                       "Strength")
 names(raw_data) <- new_column_names
-colSums(is.na(raw_data))
 
 response <- "Strength"
 predictors <- setdiff(names(raw_data), response)
 
-```
+# Basic structure
+dim(raw_data)
+# Missing values
+colSums(is.na(raw_data))
 
-```{r distribution}
+```
+The dataset contains 1,030 observations and 9 numerical variables, consisting of eight predictors and one continuous response variable, concrete compressive strength. No missing values were detected in any variable, so no missing-value imputation is required.
+
+
+```{r individual-histograms, include=FALSE}
 
 for (name in new_column_names){
   print(plot_histogram(raw_data[[name]], 
@@ -237,27 +279,242 @@ for (name in new_column_names){
 
 ```
 
-```{r pairwise-relationship}
+**Distribution and Potential Outliers**
 
+- **Age** is strongly right-skewed and contains several unusually large observations, suggesting that a transformation may be worth investigating.
+
+- **BlastFurnaceSlag** and **Superplasticizer** are strongly right-skewed with many zero values. These zeros likely represent mixtures where the ingredient was not used rather than missing data.
+
+- **FlyAsh** also has a large concentration at zero, with a right-skewed distribution among the positive observations.
+
+- **Water** contains a few potential low and high outliers, while **FineAggregate** has one potential high outlier.
+
+- **Strength** is moderately right-skewed with a small number of unusually high strength observations.
+
+- **Cement** and **CoarseAggregate** have relatively balanced distributions with no obvious extreme outliers.
+
+- Potential outliers identified from the boxplots are not automatically removed; their validity will be investigated during the data-cleaning stage.
+
+```{r Distribution overview for report,fig.width=11, fig.height=14,echo=FALSE}
+# Desired variable order: predictors first, Strength last
+variable_order <- c(predictors, "Strength")
+
+# Calculate mean and median for each variable
+summary_stats <- raw_data %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "Variable",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Variable = factor(Variable, levels = variable_order)
+  ) %>%
+  group_by(Variable) %>%
+  summarise(
+    Mean = mean(Value, na.rm = TRUE),
+    Median = median(Value, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Histogram
+raw_data %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "Variable",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Variable = factor(Variable, levels = variable_order)
+  ) %>%
+  ggplot(aes(x = Value)) +
+  geom_histogram(
+    bins = 30,
+    fill = "steelblue",
+    color = "white",
+    alpha = 0.8
+  ) +
+  geom_vline(
+    data = summary_stats,
+    aes(xintercept = Mean, color = "Mean"),
+    linetype = "dashed",
+    linewidth = 0.6
+  ) +
+  geom_vline(
+    data = summary_stats,
+    aes(xintercept = Median, color = "Median"),
+    linetype = "dotted",
+    linewidth = 0.6
+  ) +
+  facet_wrap(
+    ~ Variable,
+    scales = "free",
+    ncol = 2
+  ) +
+  scale_color_manual(
+    name = NULL,
+    values = c(
+      "Mean" = "blue",
+      "Median" = "darkgreen"
+    )
+  ) +
+  labs(
+    title = "Distribution of Variables",
+    x = NULL,
+    y = "Frequency"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(
+      hjust = 0.5,
+      face = "bold",
+      size = 16
+    ),
+    strip.text = element_text(
+      size = 12,
+      face = "bold"
+    ),
+    axis.text = element_text(size = 10),
+    legend.position = "bottom"
+  )
+
+# Box plot
+raw_data %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "Variable",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Variable = factor(Variable, levels = variable_order)
+  ) %>%
+  ggplot(aes(x = "", y = Value)) +
+  geom_boxplot() +
+  facet_wrap(
+    ~ Variable,
+    scales = "free",
+    ncol = 3
+  ) +
+  labs(
+    title = "Boxplots of Variables",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+```                 
+
+**Pairwise Relationships**
+
+```{r pair wise,echo=FALSE}
+raw_data %>%
+  pivot_longer(
+    cols = all_of(predictors),
+    names_to = "Predictor",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Predictor = factor(Predictor, levels = predictors)
+  )%>%
+  ggplot(aes(x = Value, y = Strength)) +
+  geom_point(alpha = 0.35) +
+  geom_smooth(
+    method = "loess",
+    se = FALSE
+  ) +
+  facet_wrap(
+    ~ Predictor,
+    scales = "free_x",
+    ncol = 3
+  ) +
+  labs(
+    title = "Relationships Between Predictors and Concrete Strength",
+    x = NULL,
+    y = "Concrete Compressive Strength (MPa)"
+  ) +
+  theme_minimal()
 ```
 
-```{r correlation}
+- **Cement** shows a clear positive and approximately linear relationship with Strength.
 
-# Keep only numeric predictors
-numeric_predictors <- predictors[
-  sapply(raw_data[predictors], is.numeric)
+- **Age** exhibits pronounced nonlinearity, with Strength increasing rapidly at early ages and then levelling off; therefore, a log transformation of Age will be investigated.
+
+- **Superplasticizer** shows a positive but mildly nonlinear association, while **Water** displays substantial curvature.
+
+- **BlastFurnaceSlag, FlyAsh, CoarseAggregate,** and **FineAggregate** show weaker marginal relationships with Strength.
+
+- Overall, the plots suggest that a purely linear specification may not fully capture all predictor-response relationships. These marginal plots are used to motivate further transformation checks.
+
+**Correlation Analysis**
+```{r correlation 1, include=FALSE}
+
+library(corrplot)
+
+# -----------------------------------
+# 1. Correlation among all variables
+# -----------------------------------
+
+numeric_variables <- names(raw_data)[
+  sapply(raw_data, is.numeric)
 ]
 
-# Correlation matrix among predictors
 cor_matrix <- cor(
-  raw_data[numeric_predictors],
-  use = "pairwise.complete.obs"
+  raw_data[numeric_variables],
+  use = "pairwise.complete.obs",
+  method = "pearson"
 )
 
-# Display correlation matrix
+# Numerical correlation matrix
 round(cor_matrix, 2)
 
 ```
+
+
+```{r correlation 2, echo=FALSE}
+# -----------------------------------
+# 3. Correlation with Strength
+# -----------------------------------
+
+strength_cor <- cor_matrix[predictors, "Strength"]
+
+data.frame(
+  Predictor = predictors,
+  Correlation_with_Strength = round(strength_cor, 2)
+)
+# -----------------------------------
+# 2. Correlation heatmap
+# -----------------------------------
+
+
+corrplot(
+  cor_matrix,
+  method = "color",
+  type = "upper",
+  order = "hclust",
+  addCoef.col = "black",
+  tl.col = "black",
+  tl.srt = 45,
+  number.cex = 0.7
+)
+
+```
+
+
+- **Cement** has the strongest positive linear correlation with Strength (\(r = 0.50\)).
+
+- **Superplasticizer** (\(r = 0.37\)) and **Age** (\(r = 0.33\)) also show positive linear associations with Strength.
+
+- **Water** has a negative correlation with Strength (\(r = -0.29\)), indicating that higher water content tends to be associated with lower compressive strength.
+
+- **FlyAsh**, **CoarseAggregate**, **FineAggregate**, and **BlastFurnaceSlag** show relatively weak linear correlations with Strength.
+
+- Among the predictors, the strongest pairwise correlation is between **Water** and **Superplasticizer** (\(r = -0.66\)), suggesting some potential collinearity.
+
+- No predictor pair has an absolute correlation greater than \(0.70\), so there is no evidence of severe pairwise multicollinearity at this stage.
+
 
 ## Data Cleaning
 
@@ -277,79 +534,251 @@ stopifnot(
 )
 
 train_data <- raw_data[train_id, , drop=FALSE]
+test_data  <- raw_data[test_id, , drop = FALSE]
 
-foldid <- make_foldid(
-    n = nrow(train_data),
-    k = 5L,
-    seed = seeds$cv
+
+```
+
+```{r outlier, echo=FALSE}
+
+iqr_outlier_summary <- function(x) {
+
+  q1 <- unname(quantile(x, 0.25, na.rm = TRUE))
+  q3 <- unname(quantile(x, 0.75, na.rm = TRUE))
+  iqr <- q3 - q1
+
+  lower <- q1 - 1.5 * iqr
+  upper <- q3 + 1.5 * iqr
+
+  outlier_flag <- x < lower | x > upper
+
+  c(
+    Lower_Bound = lower,
+    Upper_Bound = upper,
+    Number_of_Outliers = sum(outlier_flag, na.rm = TRUE),
+    Percentage = mean(outlier_flag, na.rm = TRUE) * 100
+  )
+}
+
+outlier_summary <- do.call(
+  rbind,
+  lapply(train_data, iqr_outlier_summary)
+)
+
+outlier_summary <- as.data.frame(outlier_summary)
+outlier_summary$Variable <- rownames(outlier_summary)
+rownames(outlier_summary) <- NULL
+
+outlier_summary <- outlier_summary[
+  , c(
+    "Variable",
+    "Lower_Bound",
+    "Upper_Bound",
+    "Number_of_Outliers",
+    "Percentage"
+  )
+]
+outlier_summary$Lower_Bound <- round(outlier_summary$Lower_Bound, 2)
+outlier_summary$Upper_Bound <- round(outlier_summary$Upper_Bound, 2)
+outlier_summary$Percentage <- round(outlier_summary$Percentage, 2)
+
+outlier_summary
+```
+
+
+- Potential outliers were identified from the training set using the \(1.5\times IQR\) rule.
+
+- Most variables contained very few flagged observations. Water, Superplasticizer, FineAggregate, BlastFurnaceSlag, and Strength each had less than 1% of observations outside the IQR bounds.
+
+- **Age** had the largest number of flagged observations (43 observations, 5.22%). However, its strongly right-skewed distribution suggests that these points mainly represent the upper tail of the age distribution rather than obvious data errors.
+
+- The flagged observations were retained because no clear evidence indicated measurement or data-entry errors. Removing valid extreme concrete mixtures could discard useful information and bias the subsequent models.
+
+- The skewness of Age will instead be addressed by investigating a log transformation.
+
+**Variable Transformation**
+
+```{r transformation-check, echo=FALSE}
+library(patchwork)
+
+compare_transform <- function(data, raw_var, transformed_var, transformed_name) {
+
+  # Original variable
+  p_raw <- ggplot(
+    data,
+    aes(x = .data[[raw_var]], y = Strength)
+  ) +
+    geom_point(alpha = 0.3) +
+    geom_smooth(
+      method = "lm",
+      se = FALSE,
+      color = "red",
+      linewidth = 0.8
+    ) +
+    geom_smooth(
+      method = "loess",
+      se = FALSE,
+      color = "blue",
+      linewidth = 0.8
+    ) +
+    labs(
+      title = paste("Original:", raw_var),
+      x = raw_var,
+      y = "Concrete Compressive Strength (MPa)"
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+      plot.title = element_text(
+        hjust = 0.5,
+        face = "bold"
+      )
+    )
+
+  # Transformed variable
+  temp_data <- data
+  temp_data$Transformed <- transformed_var
+
+  p_trans <- ggplot(
+    temp_data,
+    aes(x = Transformed, y = Strength)
+  ) +
+    geom_point(alpha = 0.3) +
+    geom_smooth(
+      method = "lm",
+      se = FALSE,
+      color = "red",
+      linewidth = 0.8
+    ) +
+    geom_smooth(
+      method = "loess",
+      se = FALSE,
+      color = "blue",
+      linewidth = 0.8
+    ) +
+    labs(
+      title = paste("Transformed:", transformed_name),
+      x = transformed_name,
+      y = "Concrete Compressive Strength (MPa)"
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+      plot.title = element_text(
+        hjust = 0.5,
+        face = "bold"
+      )
+    )
+
+  # Combine plots
+  combined_plot <- p_raw + p_trans +
+    plot_annotation(
+      title = paste(
+        "Effect of Transformation:",
+        raw_var
+      ),
+      subtitle = "Red: Linear fit | Blue: LOESS smooth",
+      theme = theme(
+        plot.title = element_text(
+          hjust = 0.5,
+          face = "bold",
+          size = 14
+        ),
+        plot.subtitle = element_text(
+          hjust = 0.5,
+          size = 10
+        )
+      )
+    )
+
+  return(combined_plot)
+}
+
+# Age
+print(
+  compare_transform(
+    train_data,
+    "Age",
+    log(train_data$Age),
+    "log(Age)"
+  )
 )
 
 ```
 
-```{r missing-value}
+```{r transformation-summary, echo=FALSE}
+
+age_comparison <- data.frame(
+  Form = c("Age", "log(Age)"),
+  Correlation_with_Strength = c(
+    cor(train_data$Age, train_data$Strength),
+    cor(log(train_data$Age), train_data$Strength)
+  )
+)
+age_comparison
 ```
 
+```{r transformation + feature-engineering, echo=FALSE}
 
-```{r outlier}
-```
+train_clean <- train_data %>%
+  mutate(
+    # Transformation supported by EDA
+    LogAge = log(Age),
 
-```{r transform}
+    # Zero-presence indicators
+    SlagPresent = as.integer(BlastFurnaceSlag > 0),
+    FlyAshPresent = as.integer(FlyAsh > 0),
+    SuperplasticizerPresent =
+      as.integer(Superplasticizer > 0)
+  ) %>%
+  select(-Age)
 
-transform_data <- train_data
+test_clean <- test_data %>%
+  mutate(
+    LogAge = log(Age),
 
-transform_data$Cement <- sqrt(transform_data$Cement)
-transform_data$BlastFurnaceSlag <- transform_data$BlastFurnaceSlag
-transform_data$FlyAsh <- transform_data$FlyAsh 
-transform_data$Water <- (transform_data$Water)^2
-transform_data$Superplasticizer <- transform_data$Superplasticizer
-transform_data$CoarseAggregate <- transform_data$CoarseAggregate
-transform_data$FineAggregate <- transform_data$FineAggregate
-transform_data$Age <- log(transform_data$Age)
-transform_data$Strength <- sqrt(transform_data$Strength)
+    SlagPresent = as.integer(BlastFurnaceSlag > 0),
+    FlyAshPresent = as.integer(FlyAsh > 0),
+    SuperplasticizerPresent =
+      as.integer(Superplasticizer > 0)
+  ) %>%
+  select(-Age)
 
-binary_encode <- function(x) {
-  factor(ifelse(x > 0, 1, 0))
-}
+clean_predictors <- setdiff(
+  names(train_clean),
+  response
+)
 
-transform_data$BlastFurnaceSlag <- binary_encode(transform_data$BlastFurnaceSlag)
-transform_data$FlyAsh <- binary_encode(transform_data$FlyAsh)
-transform_data$Superplasticizer <- binary_encode(transform_data$Superplasticizer)
+x_train_raw <- as.matrix(
+  train_clean[, clean_predictors, drop = FALSE]
+)
+x_test_raw <- as.matrix(
+  test_clean[, clean_predictors, drop = FALSE]
+)
+# Keep response on the original MPa scale
+y_train <- train_clean[[response]]
+y_test <- test_clean[[response]]
 
-for (name in new_column_names){
-  print(plot_histogram(transform_data[[name]], 
-                       paste("Distribution of", name) , 
-                       name,
-                       "frequency"))
-}
 
-# Apply to all dataset
-
-raw_data$Cement <- sqrt(raw_data$Cement)
-raw_data$BlastFurnaceSlag <- raw_data$BlastFurnaceSlag
-raw_data$FlyAsh <- raw_data$FlyAsh
-raw_data$Water <- (raw_data$Water)^2
-raw_data$Superplasticizer <- raw_data$Superplasticizer
-raw_data$CoarseAggregate <- raw_data$CoarseAggregate
-raw_data$FineAggregate <- raw_data$FineAggregate
-raw_data$Age <- log(raw_data$Age)
-raw_data$Strength <- sqrt(raw_data$Strength)
-
-```
-
-```{r scaling}
-
-x_raw <- as.matrix(raw_data[, predictors, drop = FALSE])
-y_raw <- raw_data[[response]]
-
-x_prep <- fit_scaler(x_raw[train_id, , drop = FALSE])
-x_raw_scaled <- apply_scaler(x_raw, x_prep)
-
-x_train <- x_raw_scaled[train_id, , drop = FALSE]
-x_test <- x_raw_scaled[test_id, , drop = FALSE]
-y_train <- y_raw[train_id]
-y_test <- y_raw[test_id]
+foldid <- make_foldid(
+  n = nrow(train_clean),
+  k = 5L,
+  seed = seeds$cv
+)
 
 ```
+
+- **Age** was strongly right-skewed and showed a pronounced nonlinear relationship with Strength. After applying a logarithmic transformation, the relationship became substantially more linear and the Pearson correlation increased from \(r = 0.338\) to \(r = 0.558\). Therefore, `log(Age)` was used in subsequent modelling.
+
+- **Cement, Water, FlyAsh, BlastFurnaceSlag, Superplasticizer, CoarseAggregate,** and **FineAggregate** were otherwise retained on their original scales because there was insufficient evidence that transformation would improve the modelling relationship.
+
+- **Strength** was retained on its original MPa scale to preserve direct interpretation of predictions and evaluation metrics.
+
+- All original predictors are numeric, so no categorical encoding was required.
+
+**Feature Engineering**
+
+- Zero values in BlastFurnaceSlag, FlyAsh, and Superplasticizer indicate ingredient absence, so binary presence indicators were added while retaining the original dosage variables, allowing the models to distinguish between ingredient presence and dosage.
+
+- These engineered features were treated as candidate predictors and were evaluated during the subsequent feature-selection stage rather than assumed to be useful a priori.
 
 ## Feature Selection
 
@@ -361,14 +790,10 @@ We use **Variance Inflation Factor (VIF)** screening and stepwise selection as s
 
 ```{r vif, echo=FALSE}
 
-train_data <- data.frame(
-  x_train,
-  y_train = y_train
-)
-
+# Full model using the cleaned and engineered training data
 vif_model <- lm(
-  y_train ~ .,
-  data = train_data
+  Strength ~ .,
+  data = train_clean
 )
 
 vif_values <- car::vif(vif_model)
@@ -378,38 +803,56 @@ vif_table <- data.frame(
   VIF = as.numeric(vif_values)
 )
 
-vif_table <- vif_table[order(-vif_table$VIF), ]
+vif_table <- vif_table[
+  order(-vif_table$VIF),
+]
 
-vif_table$VIF <- round(vif_table$VIF, 2)
+vif_table$VIF <- round(
+  vif_table$VIF,
+  2
+)
 
 vif_table$Assessment <- cut(
   vif_table$VIF,
   breaks = c(-Inf, 5, 10, Inf),
-  labels = c("Acceptable", "High", "Very High")
+  labels = c(
+    "Acceptable",
+    "High",
+    "Very High"
+  )
 )
 
 render_table(
   vif_table,
-  caption = "Variance Inflation Factor (VIF) of Training Predictors"
+  caption = "Variance Inflation Factor (VIF) of Candidate Predictors"
 )
-
 ```
 
-The VIF results show that Cement (7.28), BlastFurnaceSlag (7.15), FineAggregate (6.65), Water (6.44), and FlyAsh (6.09) have relatively high VIF values, indicating the presence of multicollinearity among these predictors. Although VIF levels of above predictors are high, they only measures the degree of multicollinearity and does not assess the contribution of a predictor to the regression model. Therefore, a high VIF does not provide sufficient justification for removing a variable. In addition the model contains only seven predictors, so we retain these variables at this stage and use stepwise selection to further evaluate the contribution of each predictors to the model.
+
 
 ### Stepwise selection
 
 ```{r stepwise, echo=FALSE}
 
-stepwise_model <- ols_stepwise_regression(
-  x_train = x_train,
-  y_train = y_train,
-  direction = "both"
+full_step_model <- lm(
+  Strength ~ .,
+  data = train_clean
 )
 
-all_predictors <- colnames(x_train)
+stepwise_model <- step(
+  full_step_model,
+  direction = "both",
+  trace = 0
+)
 
-selected_predictors <- names(coef(stepwise_model))[-1]
+all_predictors <- setdiff(
+  names(train_clean),
+  response
+)
+
+selected_predictors <- names(
+  coef(stepwise_model)
+)[-1]
 
 selection_table <- data.frame(
   Predictor = all_predictors,
@@ -422,12 +865,11 @@ selection_table <- data.frame(
 
 render_table(
   selection_table,
-  caption = "Feature Selection Results from Stepwise Regression"
+  caption = "Feature Selection Results from Stepwise AIC"
 )
-
 ```
 
-No variables were removed by the stepwise selection, indicating that removing any predictor would substantially reduce the model fit. Therefore, all predictors are retained, and regularization methods are applied to mitigate the effects of multicollinearity.
+
 
 
 ## Modeling with Regularization
@@ -446,14 +888,9 @@ We consider Linear Regression as the baseline model and apply Ridge, Lasso, and 
 
 ```{r linear}
 
-train_data <- data.frame(
-  x_train,
-  y = y_train
-)
-
 ols_model <- lm(
-  y ~ .,
-  data = train_data
+  Strength ~ .,
+  data = train_clean
 )
 
 ols_summary <- summary(ols_model)$coefficients
@@ -484,12 +921,12 @@ plot(ols_model)
 
 The p-value of Superplasticizer is 0.0842 > 0.05, indicating that its coefficient is not statistically significant at the $\alpha=0.05$ level. In addition, Cement, BlastFurnaceSlag, FlyAsh, Water, and FineAggregate have relatively high VIF values and large coefficient estimates, suggesting that their OLS coefficients may be unstable due to multicollinearity.
 
-### Ride regression
+### Ridge regression
 
 ```{r ridge}
 
 ridge_cv <- fit_cv_glmnet(
-  x = as.matrix(x_train),
+  x = x_train_raw,
   y = y_train,
   alpha = 0,
   foldid = foldid
@@ -523,7 +960,7 @@ Most coefficients are shrunk, particularly for predictors with high VIF values, 
 ```{r lasso, echo=FALSE}
 
 lasso_cv <- fit_cv_glmnet(
-  x = as.matrix(x_train),
+  x = x_train_raw,
   y = y_train,
   alpha = 1,
   foldid = foldid
@@ -550,6 +987,7 @@ render_table(
 
 ```
 
+
 All predictors retain non-zero coefficients, so Lasso does not remove any variables at the selected $\lambda$. This is consistent with the stepwise result, where no predictors were removed. Compared with OLS, most coefficients are slightly reduced, e.g. Cement 1.2567-1.2299, BlastFurnaceSlag 0.8907-0.8641, and FlyAsh 0.5697-0.5468. This indicates that the L1 penalty provides some coefficient shrinkage, but the effect is relatively mild. Lasso coefficients remain much closer to OLS than Ridge coefficients. This suggests that the selected Lasso penalty is relatively weak and that Lasso does not substantially alter the coefficient structure of the model.
 
 ### Elastic Net regression
@@ -567,7 +1005,7 @@ elastic_results <- lapply(
   function(alpha) {
     
     cv_fit <- fit_cv_glmnet(
-      x = as.matrix(x_train),
+      x = x_train_raw,
       y = y_train,
       alpha = alpha,
       foldid = foldid
@@ -593,7 +1031,7 @@ best_elastic <- elastic_results[
 best_elastic
 
 elastic_cv <- fit_cv_glmnet(
-  x = as.matrix(x_train),
+  x = x_train_raw,
   y = y_train,
   alpha = best_elastic$alpha,
   foldid = foldid
@@ -634,7 +1072,7 @@ We use RMSE, MAE, and $R^2$ to evaluate the regression models. That is because:
 
 ols_pred <- predict(
   ols_model,
-  newdata = data.frame(x_test)
+  newdata = test_clean
 )
 
 ols_metrics <- regression_metrics(
@@ -644,7 +1082,7 @@ ols_metrics <- regression_metrics(
 
 ridge_pred <- predict(
   ridge_cv,
-  newx = as.matrix(x_test),
+  newx = x_test_raw,
   s = "lambda.min"
 )
 
@@ -655,7 +1093,7 @@ ridge_metrics <- regression_metrics(
 
 lasso_pred <- predict(
   lasso_cv,
-  newx = as.matrix(x_test),
+  newx = x_test_raw,
   s = "lambda.min"
 )
 
@@ -666,7 +1104,7 @@ lasso_metrics <- regression_metrics(
 
 elastic_pred <- predict(
   elastic_cv,
-  newx = as.matrix(x_test),
+  newx = x_test_raw,
   s = "lambda.min"
 )
 
