@@ -11,8 +11,6 @@ output:
   html_document:
     toc: true
     toc_depth: 3
-bibliography: references.bib
-link-citations: true
 fontsize: 11pt
 geometry: margin=1in
 ---
@@ -224,7 +222,7 @@ names(raw_data) <- new_column_names
 colSums(is.na(raw_data))
 
 response <- "Strength"
-predictor <- setdiff(names(raw_data), response)
+predictors <- setdiff(names(raw_data), response)
 
 ```
 
@@ -713,6 +711,10 @@ The results also illustrate the bias–variance trade-off. OLS has no regulariza
 
 # Part II - ToothGrowth
 
+## Dataset selection
+
+The built-in `ToothGrowth` dataset was selected because it records a continuous response under every combination of two categorical experimental factors. It contains odontoblast lengths for 60 guinea pigs receiving vitamin C through orange juice (OJ) or ascorbic acid (VC) at daily doses of 0.5, 1, or 2 mg. The six treatment combinations each contain 10 observations, making the data suitable for a balanced two-factor factorial analysis.
+
 ```{r data anova}
 
 data(ToothGrowth)
@@ -722,7 +724,152 @@ ToothGrowth$dose <- as.factor(ToothGrowth$dose)
 
 ```
 
-## ANOVA analysis
+## Research question & hypotheses
+
+The response variable is odontoblast length (`len`), in the recorded units of the dataset. The two experimental factors are the vitamin C delivery method (`supp`: orange juice, OJ, or ascorbic acid, VC) and daily dose (`dose`: 0.5, 1, or 2 mg/day). Let $\mu_{ij}$ denote the population mean odontoblast length for supplement $i$ at dose $j$. We use a significance level of $\alpha=0.05$ for all ANOVA tests.
+
+The analysis addresses three related research questions:
+
+1. **Supplement main effect:** Averaged across the three doses, does mean odontoblast length differ between OJ and VC?
+
+   - $H_{0,S}: \mu_{OJ,\cdot}=\mu_{VC,\cdot}$ (no supplement main effect).
+   - $H_{A,S}: \mu_{OJ,\cdot}\ne\mu_{VC,\cdot}$.
+
+2. **Dose main effect:** Averaged across the two supplements, does mean odontoblast length differ among the three dose levels?
+
+   - $H_{0,D}: \mu_{\cdot,0.5}=\mu_{\cdot,1}=\mu_{\cdot,2}$ (no dose main effect).
+   - $H_{A,D}:$ at least one marginal dose mean differs.
+
+3. **Supplement-by-dose interaction:** Does the effect of supplement on mean odontoblast length depend on dose?
+
+   - $H_{0,SD}: \mu_{OJ,j}-\mu_{VC,j}$ is the same for every dose $j$ (no interaction).
+   - $H_{A,SD}:$ at least one of these supplement differences changes with dose.
+
+These hypotheses distinguish the overall effects of the two factors from their interaction. This distinction is important because an overall supplement difference can conceal different supplement effects at individual doses.
+
+## Descriptive statistics
+
+The following code computes both an overall summary and a summary for every supplement--dose cell. Variance and standard deviation use the usual sample definitions. The cell sample sizes also verify that the design is balanced.
+
+```{r toothgrowth-descriptive-tables}
+# Calculate an overall description of the continuous response.
+tooth_overall_summary <- data.frame(
+  N = nrow(ToothGrowth),
+  Mean = mean(ToothGrowth$len),
+  Median = median(ToothGrowth$len),
+  Variance = var(ToothGrowth$len),
+  SD = sd(ToothGrowth$len),
+  Minimum = min(ToothGrowth$len),
+  Maximum = max(ToothGrowth$len)
+) |>
+  mutate(across(where(is.numeric), ~ round(.x, 3)))
+
+render_table(
+  tooth_overall_summary,
+  caption = "Overall Descriptive Statistics for Odontoblast Length"
+)
+```
+
+```{r toothgrowth-cell-summary}
+# Summarise each of the six treatment combinations separately.
+tooth_cell_summary <- ToothGrowth |>
+  group_by(supp, dose) |>
+  summarise(
+    N = n(),
+    Mean = mean(len),
+    Median = median(len),
+    Variance = var(len),
+    SD = sd(len),
+    .groups = "drop"
+  ) |>
+  mutate(across(c(Mean, Median, Variance, SD), ~ round(.x, 3))) |>
+  rename(Supplement = supp, Dose = dose)
+
+render_table(
+  tooth_cell_summary,
+  caption = "Odontoblast Length by Supplement and Dose"
+)
+```
+
+There are 60 observations and exactly 10 observations in each of the six cells, so this is a balanced $2\times3$ factorial design. Overall odontoblast length has mean 18.813 and median 19.250 in the dataset's recorded units. Mean odontoblast length rises with dose for both supplements. For VC, the means at doses 0.5, 1, and 2 mg/day are 7.98, 16.77, and 26.14; for OJ, they are 13.23, 22.70, and 26.06. Thus, OJ has a visibly higher mean at 0.5 and 1 mg/day, while the two supplement means are almost identical at 2 mg/day. This convergence suggests that an interaction may be present and should be tested formally.
+
+The next plots show the distributions, group separation, and mean response profiles from complementary perspectives.
+
+```{r toothgrowth-descriptive-plots, fig.width=7, fig.height=4.5}
+# Box plots retain the individual dose groups and make within-cell spread visible.
+tooth_boxplot <- ggplot(
+  ToothGrowth,
+  aes(x = dose, y = len, fill = supp)
+) +
+  geom_boxplot(position = position_dodge(width = 0.8), alpha = 0.80) +
+  labs(
+    title = "Odontoblast Length by Dose and Supplement",
+    x = "Vitamin C dose (mg/day)",
+    y = "Odontoblast length",
+    fill = "Supplement"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+print(tooth_boxplot)
+
+# Non-parallel mean profiles are visual evidence of a possible interaction.
+tooth_interaction_plot <- ggplot(
+  ToothGrowth,
+  aes(x = dose, y = len, colour = supp, group = supp)
+) +
+  stat_summary(fun = mean, geom = "line", linewidth = 0.9) +
+  stat_summary(fun = mean, geom = "point", size = 2.8) +
+  labs(
+    title = "Interaction Plot of Cell Means",
+    x = "Vitamin C dose (mg/day)",
+    y = "Mean odontoblast length",
+    colour = "Supplement"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+print(tooth_interaction_plot)
+
+# Faceting the histogram allows the overall response distributions to be
+# compared between delivery methods without treating dose as continuous.
+tooth_histogram <- ggplot(
+  ToothGrowth,
+  aes(x = len, fill = supp)
+) +
+  geom_histogram(bins = 10, colour = "white", alpha = 0.80) +
+  facet_wrap(~ supp, nrow = 1) +
+  labs(
+    title = "Distribution of Odontoblast Length by Supplement",
+    x = "Odontoblast length",
+    y = "Frequency",
+    fill = "Supplement"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "none"
+  )
+
+print(tooth_histogram)
+```
+
+The box plots show a strong upward dose pattern for both delivery methods. The interaction plot makes the convergence especially clear: the OJ and VC profiles are separated at 0.5 and 1 mg/day but meet at 2 mg/day. The histograms show the raw response distribution for each supplement; because each histogram pools the dose groups, their spread reflects both within-dose variation and the strong shift in location across doses.
+
+## ANOVA/Factorial Design Analysis
+
+### Choice of analysis strategy
+
+Among the strategies we have learned, a **two-way factorial ANOVA with interaction** is the appropriate choice. Both predictors are experimentally defined categorical factors, all $2\times3=6$ treatment combinations are observed, the response is continuous, and the balanced design has 10 observations per cell. The fitted model is
+
+$$
+Y_{ijk}=\mu+\alpha_i+\beta_j+(\alpha\beta)_{ij}+\varepsilon_{ijk},
+$$
+
+where $\alpha_i$ is the supplement effect, $\beta_j$ is the dose effect, and $(\alpha\beta)_{ij}$ is their interaction.
+
+A one-way completely randomized design using six combined treatment labels could compare the six means, but it would not directly decompose variation into supplement, dose, and interaction effects. The unequal-sample-size strategy is unnecessary because every cell has the same sample size. Fisher's LSD is a post-hoc comparison method rather than the primary factorial model. ANCOVA would treat dose as a quantitative covariate and impose a particular trend, whereas treating the three assigned doses as a factor allows their means to differ without assuming linearity. Finally, no blocking variable is recorded, so this is a two-way factorial ANOVA rather than a randomized complete block design.
+
 ### Result
 
 ```{r anova}
@@ -763,6 +910,37 @@ render_table(anova_df, "ANOVA result")
 ```
 The ANOVA results show that both supplement type and Vitamin C dose have significant effects on tooth length, with p-values $$< 0.05$$. This indicates that mean tooth length differs between the two supplement types and among the different Vitamin C dose levels. Furthermore, the interaction between supplement type and Vitamin C dose is also significant ($$p<0.05$$), indicating that the effect of one factor on tooth length depends on the level of the other factor. In particular, the effect of Vitamin C dose on tooth length differs depending on whether the supplement is administered as vitamin C (VC) or orange juice (OJ).
 
+The following partial eta-squared values supplement the significance tests by measuring the size of each effect relative to that effect plus the residual variation.
+
+```{r toothgrowth-effect-sizes}
+tooth_anova_raw <- summary(model)[[1]]
+tooth_error_ss <- tooth_anova_raw["Residuals", "Sum Sq"]
+
+tooth_effect_sizes <- data.frame(
+  Effect = c("Supplement", "Dose", "Supplement x Dose"),
+  Partial_Eta_Squared = c(
+    tooth_anova_raw["supp", "Sum Sq"],
+    tooth_anova_raw["dose", "Sum Sq"],
+    tooth_anova_raw["supp:dose", "Sum Sq"]
+  )
+) |>
+  mutate(
+    Partial_Eta_Squared = round(
+      Partial_Eta_Squared / (Partial_Eta_Squared + tooth_error_ss),
+      3
+    )
+  )
+
+render_table(
+  tooth_effect_sizes,
+  caption = "Partial Eta-Squared Effect Sizes"
+)
+```
+
+Dose has the largest partial eta-squared (0.773), indicating that it is the dominant source of systematic variation in this experiment. Because the interaction is significant, however, the supplement main effect is only an average across dose levels and should not be interpreted as showing that OJ is uniformly better than VC.
+
+More specifically, the supplement effect is $F(1,54)=15.572$ with $p=0.000231$; the marginal means are 20.663 for OJ and 16.963 for VC. The dose effect is $F(2,54)=92.000$ with $p<0.0001$, and the marginal means increase from 10.605 at 0.5 mg/day to 19.735 at 1 mg/day and 26.100 at 2 mg/day. The interaction is $F(2,54)=4.107$ with $p=0.0219$; the OJ-minus-VC mean difference is 5.25 at 0.5 mg/day, 5.93 at 1 mg/day, and $-0.08$ at 2 mg/day. Thus, the observed OJ advantage occurs at the two lower doses and is essentially absent at 2 mg/day.
+
 ### Model adequacy
 
 ```{r anova adequacy}
@@ -788,7 +966,7 @@ The normal Q-Q plot shows that the points are relatively close to the reference 
 
 ```{r variance homogeneity}
 
-plot(fitted(model_trans), residuals(model),
+plot(fitted(model), residuals(model),
      xlab = "Fitted values",
      ylab = "Residuals",
      main = "Residual Plot")
@@ -802,7 +980,6 @@ levene_result <- as.data.frame(
 )
 
 levene_result <- levene_result[1, , drop = FALSE]
-row
 render_table(levene_result, "Result of Levene's Test")
 
 ```
@@ -848,7 +1025,7 @@ render_table(tukey_dose, "Resutls of Tukey's HSD on Dose")
 
 ```
 $$
-\text{diff_mean}
+\text{diff\_mean}
 =
 \frac{\text{diff}}
 {\text{ mean of tooth length}}
@@ -1025,4 +1202,12 @@ Except for the comparisons VC.1 vs OJ.0.5, OJ.2 vs OJ.1, VC.2 vs OJ.1, and VC.2 
 
 From the heatmap, we can observe that higher doses are generally associated with greater tooth length. Additionally, supplementation with orange juice tends to result in longer tooth length than vitamin C at comparable doses. However, this trend is less consistent when there is a large difference in dose, such as between 0.5 mg and 2 mg, where the effect of dose appears to outweigh the effect of supplement type.
 
-For orange juice supplementation, the variation in tooth length across different doses is less pronounced than for ascorbic acid. In particular, when the dose increases from 0.5 mg to 2 mg, ascorbic acid produces a difference equivalent to $$0.97$$ times the mean tooth length, whereas orange juice produces a smaller difference of $$0.68$$8 times the mean tooth length.
+For orange juice supplementation, the variation in tooth length across different doses is less pronounced than for ascorbic acid. In particular, when the dose increases from 0.5 mg to 2 mg, ascorbic acid produces a difference equivalent to $$0.97$$ times the mean tooth length, whereas orange juice produces a smaller difference of $$0.68$$ times the mean tooth length.
+
+## Conclusion and Evaluation
+
+The analysis provides evidence that odontoblast length depends on vitamin C dose, supplement type, and their interaction. Dose is the dominant factor: mean tooth length increases substantially as the dose rises from 0.5 to 2 mg/day. OJ produces greater mean tooth length than VC at the two lower doses, but the two delivery methods have almost identical means at 2 mg/day. The significant interaction therefore shows that the supplement effect must be interpreted at each dose rather than as one constant overall advantage.
+
+The post-hoc results support this interpretation. All marginal dose comparisons are significant, while the treatment-combination comparisons show that several supplement--dose groups are statistically indistinguishable. In practical terms, increasing dose has a stronger and more consistent relationship with tooth length than changing the delivery method, especially when dose differences are large.
+
+The factorial ANOVA is appropriate because the dataset is balanced and contains all six combinations of the two categorical factors. The residual diagnostics and formal tests provide no evidence against the normality, equal-variance, or independence assumptions. Nevertheless, these diagnostics have limited power with 10 observations per cell, and the independence assumption ultimately depends on how the animals were assigned and measured. The conclusions should therefore be restricted to the dose levels, delivery methods, response measure, and study population represented in `ToothGrowth`; they should not be extrapolated to untested doses or broader populations without additional evidence.
