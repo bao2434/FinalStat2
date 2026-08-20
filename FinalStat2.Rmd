@@ -723,7 +723,7 @@ age_comparison
 train_clean <- train_data %>%
   mutate(
     # Transformation supported by EDA
-    LogAge = log(Age),
+    LogAge = log(Age), Water2 = Water^2,
 
     # Zero-presence indicators
     SlagPresent = as.integer(BlastFurnaceSlag > 0),
@@ -735,7 +735,7 @@ train_clean <- train_data %>%
 
 test_clean <- test_data %>%
   mutate(
-    LogAge = log(Age),
+    LogAge = log(Age), Water2 = Water^2,
 
     SlagPresent = as.integer(BlastFurnaceSlag > 0),
     FlyAshPresent = as.integer(FlyAsh > 0),
@@ -769,7 +769,7 @@ foldid <- make_foldid(
 train_clean_binary <- train_data %>%
   mutate(
     # Transformation supported by EDA
-    LogAge = log(Age),
+    LogAge = log(Age), Water2 = Water^2,
 
     # Replace zero-heavy continuous variables by binary indicators
     BlastFurnaceSlag = as.integer(BlastFurnaceSlag > 0),
@@ -781,7 +781,7 @@ train_clean_binary <- train_data %>%
 
 test_clean_binary <- test_data %>%
   mutate(
-    LogAge = log(Age),
+    LogAge = log(Age), Water2 = Water^2,
 
     BlastFurnaceSlag = as.integer(BlastFurnaceSlag > 0),
     FlyAsh = as.integer(FlyAsh > 0),
@@ -831,11 +831,7 @@ foldid_binary <- make_foldid(
 binary_encode <- function(x) {
   factor(ifelse(x > 0, 1, 0))
 }
-```{r binary encoding, eval=FALSE}
-transform_data$BlastFurnaceSlag <- binary_encode(transform_data$BlastFurnaceSlag)
-transform_data$FlyAsh <- binary_encode(transform_data$FlyAsh)
-transform_data$Superplasticizer <- binary_encode(transform_data$Superplasticizer)
-```
+
 
 ## Feature Selection
 
