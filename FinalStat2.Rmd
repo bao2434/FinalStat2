@@ -242,7 +242,7 @@ The Concrete Compressive Strength dataset describes concrete mixtures based on t
 - **Strength:** Concrete compressive strength measured in MPa. This is the response variable to be predicted.
 
 
-```{r input, include=FALSE}
+```{r input, echo=FALSE}
 raw_data <- read_excel("Concrete_Data.xls")
 old_column_names <- names(raw_data)
 new_column_names <- c("Cement",
@@ -260,8 +260,10 @@ response <- "Strength"
 predictors <- setdiff(names(raw_data), response)
 
 # Basic structure
+print("dimension of data")
 dim(raw_data)
 # Missing values
+print("number of missing values")
 colSums(is.na(raw_data))
 
 ```
@@ -941,7 +943,7 @@ We consider Linear Regression as the baseline model and apply Ridge, Lasso, and 
 
 ### Linear Regression
 
-```{r linear}
+```{r linear, echo=FALSE}
 
 ols_model <- lm(
   Strength ~ .,
@@ -978,7 +980,7 @@ The p-value of Superplasticizer is 0.0842 > 0.05, indicating that its coefficien
 
 ### Ridge regression
 
-```{r ridge}
+```{r ridge, echo=FALSE}
 
 ridge_cv <- fit_cv_glmnet(
   x = x_train_raw,
@@ -1216,7 +1218,7 @@ The results also illustrate the bias–variance trade-off. OLS has no regulariza
 
 The built-in `ToothGrowth` dataset was selected because it records a continuous response under every combination of two categorical experimental factors. It contains odontoblast lengths for 60 guinea pigs receiving vitamin C through orange juice (OJ) or ascorbic acid (VC) at daily doses of 0.5, 1, or 2 mg. The six treatment combinations each contain 10 observations, making the data suitable for a balanced two-factor factorial analysis.
 
-```{r data anova}
+```{r data anova, echo=FALSE}
 
 data(ToothGrowth)
 
@@ -1252,7 +1254,7 @@ These hypotheses distinguish the overall effects of the two factors from their i
 
 The following code computes both an overall summary and a summary for every supplement--dose cell. Variance and standard deviation use the usual sample definitions. The cell sample sizes also verify that the design is balanced.
 
-```{r toothgrowth-descriptive-tables}
+```{r toothgrowth-descriptive-tables, echo=FALSE}
 # Calculate an overall description of the continuous response.
 tooth_overall_summary <- data.frame(
   N = nrow(ToothGrowth),
@@ -1271,7 +1273,7 @@ render_table(
 )
 ```
 
-```{r toothgrowth-cell-summary}
+```{r toothgrowth-cell-summary, echo=FALSE}
 # Summarise each of the six treatment combinations separately.
 tooth_cell_summary <- ToothGrowth |>
   group_by(supp, dose) |>
@@ -1296,7 +1298,7 @@ There are 60 observations and exactly 10 observations in each of the six cells, 
 
 The next plots show the distributions, group separation, and mean response profiles from complementary perspectives.
 
-```{r toothgrowth-descriptive-plots, fig.width=7, fig.height=4.5}
+```{r toothgrowth-descriptive-plots, fig.width=7, fig.height=4.5, echo=FALSE}
 # Box plots retain the individual dose groups and make within-cell spread visible.
 tooth_boxplot <- ggplot(
   ToothGrowth,
@@ -1373,7 +1375,7 @@ A one-way completely randomized design using six combined treatment labels could
 
 ### Result
 
-```{r anova}
+```{r anova, echo=FALSE}
 
 data(ToothGrowth)
 
@@ -1413,7 +1415,7 @@ The ANOVA results show that both supplement type and Vitamin C dose have signifi
 
 The following partial eta-squared values supplement the significance tests by measuring the size of each effect relative to that effect plus the residual variation.
 
-```{r toothgrowth-effect-sizes}
+```{r toothgrowth-effect-sizes, echo=FALSE}
 tooth_anova_raw <- summary(model)[[1]]
 tooth_error_ss <- tooth_anova_raw["Residuals", "Sum Sq"]
 
@@ -1444,7 +1446,7 @@ More specifically, the supplement effect is $F(1,54)=15.572$ with $p=0.000231$; 
 
 ### Model adequacy
 
-```{r anova adequacy}
+```{r anova adequacy, echo=FALSE}
 
 model <- lm(len ~ supp * dose, data = ToothGrowth)
 
@@ -1465,7 +1467,7 @@ render_table(shapiro_result, "Result of Shapiro-Wilk Test")
 ```
 The normal Q-Q plot shows that the points are relatively close to the reference line, suggesting that the residuals are approximately normally distributed. Furthermore, the Shapiro-Wilk test, with the null hypothesis that the residuals are normally distributed, produced a p-value of $0.6694$, so we fail to reject the null hypothesis. Therefore, these results suggest that **the normality assumption is satisfied**.
 
-```{r variance homogeneity}
+```{r variance homogeneity, echo=FALSE}
 
 plot(fitted(model), residuals(model),
      xlab = "Fitted values",
@@ -1486,7 +1488,7 @@ render_table(levene_result, "Result of Levene's Test")
 ```
 By examining the residual plot, we observe that the residuals are distributed around the reference line with a roughly equal vertical spread across the fitted values, suggesting that the variances are approximately constant. Furthermore, Levene's test, which has the null hypothesis that all groups have equal variances, produces a p-value of $0.1484$. Since this p-value is greater than $0.05$, we fail to reject the null hypothesis. Therefore, these results suggest that **the assumption of homogeneity of variance is satisfied**.
 
-```{r independence}
+```{r independence, echo=FALSE}
 
 plot(residuals(model),
      type = "p",
@@ -1516,7 +1518,7 @@ The ANOVA results indicate significant effects for both factors and their intera
 
 ### Tukey’s HSD on dose
 
-```{r HSD on dose}
+```{r HSD on dose, echo=FALSE}
 
 model <- aov(len ~ supp * dose, data = ToothGrowth)
 tukey_dose <- as.data.frame(TukeyHSD(model, "dose")$dose)
@@ -1535,7 +1537,7 @@ The results show that all three pairwise comparisons have p-values below $$0.05$
 
 ### Tukey's HSD on interaction between supplement type and dose
 
-```{r HSD on both}
+```{r HSD on both, echo=FALSE}
 
 ToothGrowth$treatment <- interaction(
   ToothGrowth$supp,
