@@ -764,6 +764,53 @@ foldid <- make_foldid(
   seed = seeds$cv
 )
 
+train_clean_binary <- train_data %>%
+  mutate(
+    # Transformation supported by EDA
+    LogAge = log(Age),
+
+    # Replace zero-heavy continuous variables by binary indicators
+    BlastFurnaceSlag = as.integer(BlastFurnaceSlag > 0),
+    FlyAsh = as.integer(FlyAsh > 0),
+    Superplasticizer = as.integer(Superplasticizer > 0)
+  ) %>%
+  select(-Age)
+
+
+test_clean_binary <- test_data %>%
+  mutate(
+    LogAge = log(Age),
+
+    BlastFurnaceSlag = as.integer(BlastFurnaceSlag > 0),
+    FlyAsh = as.integer(FlyAsh > 0),
+    Superplasticizer = as.integer(Superplasticizer > 0)
+  ) %>%
+  select(-Age)
+
+
+binary_predictors <- setdiff(
+  names(train_clean_binary),
+  response
+)
+
+x_train_binary <- as.matrix(
+  train_clean_binary[, binary_predictors, drop = FALSE]
+)
+
+x_test_binary <- as.matrix(
+  test_clean_binary[, binary_predictors, drop = FALSE]
+)
+
+# Keep response on original MPa scale
+y_train_binary <- train_clean_binary[[response]]
+y_test_binary <- test_clean_binary[[response]]
+
+foldid_binary <- make_foldid(
+  n = nrow(train_clean_binary),
+  k = 5L,
+  seed = seeds$cv
+)
+
 ```
 
 - **Age** was strongly right-skewed and showed a pronounced nonlinear relationship with Strength. After applying a logarithmic transformation, the relationship became substantially more linear and the Pearson correlation increased from \(r = 0.338\) to \(r = 0.558\). Therefore, `log(Age)` was used in subsequent modelling.
@@ -779,6 +826,14 @@ foldid <- make_foldid(
 - Zero values in BlastFurnaceSlag, FlyAsh, and Superplasticizer indicate ingredient absence, so binary presence indicators were added while retaining the original dosage variables, allowing the models to distinguish between ingredient presence and dosage.
 
 - These engineered features were treated as candidate predictors and were evaluated during the subsequent feature-selection stage rather than assumed to be useful a priori.
+binary_encode <- function(x) {
+  factor(ifelse(x > 0, 1, 0))
+}
+```{r binary encoding, eval=FALSE}
+transform_data$BlastFurnaceSlag <- binary_encode(transform_data$BlastFurnaceSlag)
+transform_data$FlyAsh <- binary_encode(transform_data$FlyAsh)
+transform_data$Superplasticizer <- binary_encode(transform_data$Superplasticizer)
+```
 
 ## Feature Selection
 
