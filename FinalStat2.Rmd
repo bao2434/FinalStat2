@@ -5,12 +5,15 @@ date: "`r format(Sys.Date(), '%Y-%m-%d')`"
 output:
   pdf_document:
     toc: true
+    toc_depth: '3'
+  bookdown::html_document2:
+    toc: true
+    toc_depth: 3
+  bookdown::pdf_document2:
+    toc: true
     number_sections: true
     latex_engine: xelatex
     fig_crop: false
-  html_document:
-    toc: true
-    toc_depth: 3
 fontsize: 11pt
 geometry: margin=1in
 ---
@@ -235,7 +238,7 @@ The Concrete Compressive Strength dataset describes concrete mixtures based on t
 
 - **CoarseAggregate:** Amount of coarse aggregate, such as gravel or crushed stone (kg/m³).
 
-- **FineAggregate:** Amount of fine aggregate, mainly sand (kg/m³).
+- **FineAggregate:** Amount of fine aggregate, typically sand (kg/m³).
 
 - **Age:** Age of the concrete at the time of strength measurement, measured in days.
 
@@ -259,13 +262,9 @@ names(raw_data) <- new_column_names
 response <- "Strength"
 predictors <- setdiff(names(raw_data), response)
 
-# Basic structure
-print("dimension of data")
-dim(raw_data)
-# Missing values
-print("number of missing values")
-colSums(is.na(raw_data))
 
+cat("Dimension:", nrow(raw_data), "x", ncol(raw_data),
+    "| Total missing values:", sum(is.na(raw_data)), "\n")
 ```
 The dataset contains 1,030 observations and 9 numerical variables, consisting of eight predictors and one continuous response variable, concrete compressive strength. No missing values were detected in any variable, so no missing-value imputation is required.
 
@@ -411,7 +410,7 @@ raw_data %>%
 
 **Pairwise Relationships**
 
-```{r pair wise,echo=FALSE}
+```{r pair wise,echo=FALSE, message=FALSE}
 raw_data %>%
   pivot_longer(
     cols = all_of(predictors),
@@ -600,7 +599,7 @@ outlier_summary
 
 **Variable Transformation**
 
-```{r transformation-check, echo=FALSE}
+```{r transformation-check, echo=FALSE, message=FALSE}
 library(patchwork)
 
 compare_transform <- function(data, raw_var, transformed_var, transformed_name) {
@@ -706,7 +705,7 @@ print(
 
 ```
 
-```{r transformation-summary, echo=FALSE}
+```{r transformation-summary, echo=FALSE, message=FALSE}
 
 age_comparison <- data.frame(
   Form = c("Age", "log(Age)"),
@@ -827,23 +826,41 @@ foldid_binary <- make_foldid(
 
 - Zero values in BlastFurnaceSlag, FlyAsh, and Superplasticizer indicate ingredient absence, so binary presence indicators were added while retaining the original dosage variables, allowing the models to distinguish between ingredient presence and dosage.
 
-- These engineered features were treated as candidate predictors and were evaluated during the subsequent feature-selection stage rather than assumed to be useful a priori.
-binary_encode <- function(x) {
-  factor(ifelse(x > 0, 1, 0))
-}
+- A quadratic term, \(Water^2\), was added because the EDA, thêm figure cite, suggested curvature in the relationship between Water and concrete strength.
 
+- A binary-encoding version was also created for the zero-heavy ingredient variables to evaluate whether a presence/absence representation provides better predictive performance than retaining the original dosage values.
 
 ## Feature Selection
 
-We use **Variance Inflation Factor (VIF)** screening and stepwise selection as selection methods. That is because:
-- Although most pairwise correlations among predictors are low ($|r∣<0.45$, except $r(Water, Superplasticizer)=−0.66$). However, pairwise correlation alone may not capture multicollinearity involving multiple predictors. Therefore, VIF is needed to to assess the multicollinearity level of the predictors.
-- VIF only assesses multicollinearity and does not determine which predictors should be retained in the final model. Therefore, stepwise selection is also used to identify a more parsimonious set of predictors based on model fit and complexity.
+Variance Inflation Factor (VIF) was used to assess multicollinearity among the predictors. Although most pairwise correlations were modest ($|r| < 0.45$, except $r(\text{Water}, \text{Superplasticizer}) = -0.66$), pairwise correlations alone may not capture multicollinearity arising from relationships among multiple predictors.
 
-### VIF Screening
+No predictors were removed solely based on VIF. Variable selection was further assessed using Lasso regression.
 
 ```{r vif, echo=FALSE}
+# -------------------------------
+# VIF - Original predictors
+# -------------------------------
 
-# Full model using the cleaned and engineered training data
+vif_model_raw <- lm(
+  Strength ~ .,
+  data = train_data
+)
+
+vif_values_raw <- car::vif(vif_model_raw)
+
+vif_raw <- data.frame(
+  Predictor = names(vif_values_raw),
+  VIF_Raw = round(
+    as.numeric(vif_values_raw),
+    2
+  )
+)
+
+
+# -------------------------------
+# VIF - Version 1
+# -------------------------------
+
 vif_model <- lm(
   Strength ~ .,
   data = train_clean
@@ -851,79 +868,93 @@ vif_model <- lm(
 
 vif_values <- car::vif(vif_model)
 
-vif_table <- data.frame(
+vif_original <- data.frame(
   Predictor = names(vif_values),
-  VIF = as.numeric(vif_values)
-)
-
-vif_table <- vif_table[
-  order(-vif_table$VIF),
-]
-
-vif_table$VIF <- round(
-  vif_table$VIF,
-  2
-)
-
-vif_table$Assessment <- cut(
-  vif_table$VIF,
-  breaks = c(-Inf, 5, 10, Inf),
-  labels = c(
-    "Acceptable",
-    "High",
-    "Very High"
+  VIF_Original = round(
+    as.numeric(vif_values),
+    2
   )
 )
 
-render_table(
-  vif_table,
-  caption = "Variance Inflation Factor (VIF) of Candidate Predictors"
-)
-```
 
+# -------------------------------
+# VIF - Version 2
+# -------------------------------
 
-
-### Stepwise selection
-
-```{r stepwise, echo=FALSE}
-
-full_step_model <- lm(
+vif_model_binary <- lm(
   Strength ~ .,
-  data = train_clean
+  data = train_clean_binary
 )
 
-stepwise_model <- step(
-  full_step_model,
-  direction = "both",
-  trace = 0
+vif_values_binary <- car::vif(
+  vif_model_binary
 )
 
-all_predictors <- setdiff(
-  names(train_clean),
-  response
-)
-
-selected_predictors <- names(
-  coef(stepwise_model)
-)[-1]
-
-selection_table <- data.frame(
-  Predictor = all_predictors,
-  Selected = ifelse(
-    all_predictors %in% selected_predictors,
-    "Yes",
-    "No"
+vif_binary <- data.frame(
+  Predictor = names(vif_values_binary),
+  VIF_Binary = round(
+    as.numeric(vif_values_binary),
+    2
   )
 )
 
-render_table(
-  selection_table,
-  caption = "Feature Selection Results from Stepwise AIC"
-)
+
+# -------------------------------
+# Combine VIF results
+# -------------------------------
+
+vif_comparison_table <- vif_raw %>%
+  full_join(
+    vif_original,
+    by = "Predictor"
+  ) %>%
+  full_join(
+    vif_binary,
+    by = "Predictor"
+  ) %>%
+  arrange(desc(VIF_Original)) %>%
+  rename(
+    `Original` = VIF_Raw,
+    `VIF 1` = VIF_Original,
+    `VIF 2` = VIF_Binary
+  )
+
+knitr::kable(
+  vif_comparison_table,
+  format = "latex",
+  booktabs = TRUE,
+  caption = paste0(
+    "Comparison of Variance Inflation Factors Before and After Feature Engineering. ",
+    "Original denotes the unengineered predictor set; Version 1 retains ingredient ",
+    "dosages with presence indicators, whereas Version 2 uses binary encoding ",
+    "for zero-heavy ingredients."
+  ),
+  label = "vif",
+  align = c("l", "c", "c", "c")
+) %>%
+  kableExtra::kable_styling(
+    latex_options = c(
+      "striped",
+      "hold_position"
+    ),
+    position = "center",
+    full_width = FALSE
+  ) %>%
+  kableExtra::row_spec(
+    0,
+    bold = TRUE
+  )
 ```
 
+As shown in Table \ref{tab:vif}, the original predictor set already shows moderate multicollinearity among several mixture components, with VIF values around 5-7 for `Water`, `FlyAsh`, `BlastFurnaceSlag`, `Cement`, `FineAggregate`, and `CoarseAggregate`. This is reasonable because concrete ingredients are jointly determined within a mixture and therefore are not completely independent.
 
+After feature engineering, `Water` and `Water2` have noticeably higher VIF values.This extreme collinearity is primarily structural, since `Water2` is directly derived from `Water`, rather than evidence of a new problem in the original data. The transformation from `Age` to `LogAge` also introduces less multicollinearity compared to Age in both engineered versions.
 
+In version 1, the addition of presence indicators increases redundancy for zero-heavy ingredients. For example, `FlyAsh` and `FlyAshPresent` have VIF values of 15.94 and 10.55, respectively, while `BlastFurnaceSlag` increases from 7.14 in the original data to 10.57 after feature engineering. This is expected because each presence indicator is constructed directly from its corresponding dosage variable.
+
+In contrast, Version 2 substantially reduces multicollinearity among most ingredient predictors. After replacing the zero-heavy dosage variables with binary presence/absence indicators, the VIF values for `FlyAsh`, `BlastFurnaceSlag`, `Cement`, `FineAggregate`, and `CoarseAggregate` fall to approximately 2-3.  
+
+Overall, Version 2 provides a substantially less collinear representation of the ingredient variables, whereas Version 1 retains more information about ingredient dosage at the cost of higher redundancy. 
 
 ## Modeling with Regularization
 
