@@ -5,12 +5,15 @@ date: "`r format(Sys.Date(), '%Y-%m-%d')`"
 output:
   pdf_document:
     toc: true
+    toc_depth: '3'
+  bookdown::html_document2:
+    toc: true
+    toc_depth: 3
+  bookdown::pdf_document2:
+    toc: true
     number_sections: true
     latex_engine: xelatex
     fig_crop: false
-  html_document:
-    toc: true
-    toc_depth: 3
 fontsize: 11pt
 geometry: margin=1in
 ---
@@ -235,7 +238,7 @@ The Concrete Compressive Strength dataset describes concrete mixtures based on t
 
 - **CoarseAggregate:** Amount of coarse aggregate, such as gravel or crushed stone (kg/m³).
 
-- **FineAggregate:** Amount of fine aggregate, mainly sand (kg/m³).
+- **FineAggregate:** Amount of fine aggregate, typically sand (kg/m³).
 
 - **Age:** Age of the concrete at the time of strength measurement, measured in days.
 
@@ -259,13 +262,9 @@ names(raw_data) <- new_column_names
 response <- "Strength"
 predictors <- setdiff(names(raw_data), response)
 
-# Basic structure
-print("dimension of data")
-dim(raw_data)
-# Missing values
-print("number of missing values")
-colSums(is.na(raw_data))
 
+cat("Dimension:", nrow(raw_data), "x", ncol(raw_data),
+    "| Total missing values:", sum(is.na(raw_data)), "\n")
 ```
 The dataset contains 1,030 observations and 9 numerical variables, consisting of eight predictors and one continuous response variable, concrete compressive strength. No missing values were detected in any variable, so no missing-value imputation is required.
 
@@ -411,7 +410,7 @@ raw_data %>%
 
 **Pairwise Relationships**
 
-```{r pair wise,echo=FALSE}
+```{r pair wise,echo=FALSE, message=FALSE}
 raw_data %>%
   pivot_longer(
     cols = all_of(predictors),
@@ -600,7 +599,7 @@ outlier_summary
 
 **Variable Transformation**
 
-```{r transformation-check, echo=FALSE}
+```{r transformation-check, echo=FALSE, message=FALSE}
 library(patchwork)
 
 compare_transform <- function(data, raw_var, transformed_var, transformed_name) {
@@ -706,7 +705,7 @@ print(
 
 ```
 
-```{r transformation-summary, echo=FALSE}
+```{r transformation-summary, echo=FALSE, message=FALSE}
 
 age_comparison <- data.frame(
   Form = c("Age", "log(Age)"),
@@ -783,10 +782,7 @@ foldid <- make_foldid(
 
 - Zero values in BlastFurnaceSlag, FlyAsh, and Superplasticizer indicate ingredient absence, so binary presence indicators were added while retaining the original dosage variables, allowing the models to distinguish between ingredient presence and dosage.
 
-- These engineered features were treated as candidate predictors and were evaluated during the subsequent feature-selection stage rather than assumed to be useful a priori.
-binary_encode <- function(x) {
-  factor(ifelse(x > 0, 1, 0))
-}
+- A quadratic term, \(Water^2\), was added because the EDA, thêm figure cite, suggested curvature in the relationship between Water and concrete strength.
 
 ## Feature Selection
 
@@ -796,10 +792,7 @@ binary_encode <- function(x) {
 
 - VIF only assesses multicollinearity and does not determine which predictors should be retained in the final model. Therefore, stepwise selection is also used to identify a more parsimonious set of predictors based on model fit and complexity.
 
-**VIF Screening**
-
 ```{r vif, echo=FALSE}
-
 # Full model using the cleaned and engineered training data
 vif_model <- lm(
   Strength ~ .,
@@ -842,10 +835,9 @@ render_table(
 
 - High VIFs are also observed for **FlyAsh**, **BlastFurnaceSlag**, and their presence indicators. This is expected in the results because the continuous variables and binary indicators capture related but distinct information: ingredient dosage and ingredient presence/absence, respectively.
 
-**Stepwise selection**
+# Stepwise selection
 
 ```{r stepwise, echo=FALSE}
-
 full_step_model <- lm(
   Strength ~ .,
   data = train_clean
