@@ -411,7 +411,7 @@ raw_data %>%
 
 **Pairwise Relationships**
 
-```{r pair wise,echo=FALSE}
+```{r pair wise,echo=FALSE, message = FALSE}
 raw_data %>%
   pivot_longer(
     cols = all_of(predictors),
@@ -476,16 +476,7 @@ round(cor_matrix, 2)
 
 
 ```{r correlation 2, echo=FALSE}
-# -----------------------------------
-# 3. Correlation with Strength
-# -----------------------------------
 
-strength_cor <- cor_matrix[predictors, "Strength"]
-
-data.frame(
-  Predictor = predictors,
-  Correlation_with_Strength = round(strength_cor, 2)
-)
 # -----------------------------------
 # 2. Correlation heatmap
 # -----------------------------------
@@ -600,7 +591,7 @@ outlier_summary
 
 **Variable Transformation**
 
-```{r transformation-check, echo=FALSE}
+```{r transformation-check, echo=FALSE, warning=FALSE, message=FALSE}
 library(patchwork)
 
 compare_transform <- function(data, raw_var, transformed_var, transformed_name) {
@@ -828,9 +819,14 @@ foldid_binary <- make_foldid(
 - Zero values in BlastFurnaceSlag, FlyAsh, and Superplasticizer indicate ingredient absence, so binary presence indicators were added while retaining the original dosage variables, allowing the models to distinguish between ingredient presence and dosage.
 
 - These engineered features were treated as candidate predictors and were evaluated during the subsequent feature-selection stage rather than assumed to be useful a priori.
-binary_encode <- function(x) {
-  factor(ifelse(x > 0, 1, 0))
-}
+
+\[
+x_{\text{present}} =
+\begin{cases}
+1, & \text{if } x > 0, \\
+0, & \text{if } x \leq 0.
+\end{cases}
+\]
 
 
 ## Feature Selection
