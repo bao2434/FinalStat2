@@ -5,12 +5,15 @@ date: "`r format(Sys.Date(), '%Y-%m-%d')`"
 output:
   pdf_document:
     toc: true
+    toc_depth: '3'
+  bookdown::html_document2:
+    toc: true
+    toc_depth: 3
+  bookdown::pdf_document2:
+    toc: true
     number_sections: true
     latex_engine: xelatex
     fig_crop: false
-  html_document:
-    toc: true
-    toc_depth: 3
 fontsize: 11pt
 geometry: margin=1in
 ---
@@ -235,7 +238,7 @@ The Concrete Compressive Strength dataset describes concrete mixtures based on t
 
 - **CoarseAggregate:** Amount of coarse aggregate, such as gravel or crushed stone (kg/m³).
 
-- **FineAggregate:** Amount of fine aggregate, mainly sand (kg/m³).
+- **FineAggregate:** Amount of fine aggregate, typically sand (kg/m³).
 
 - **Age:** Age of the concrete at the time of strength measurement, measured in days.
 
@@ -259,13 +262,9 @@ names(raw_data) <- new_column_names
 response <- "Strength"
 predictors <- setdiff(names(raw_data), response)
 
-# Basic structure
-print("dimension of data")
-dim(raw_data)
-# Missing values
-print("number of missing values")
-colSums(is.na(raw_data))
 
+cat("Dimension:", nrow(raw_data), "x", ncol(raw_data),
+    "| Total missing values:", sum(is.na(raw_data)), "\n")
 ```
 The dataset contains 1,030 observations and 9 numerical variables, consisting of eight predictors and one continuous response variable, concrete compressive strength. No missing values were detected in any variable, so no missing-value imputation is required.
 
@@ -411,7 +410,7 @@ raw_data %>%
 
 **Pairwise Relationships**
 
-```{r pair wise,echo=FALSE, message = FALSE}
+```{r pair wise,echo=FALSE, message=FALSE}
 raw_data %>%
   pivot_longer(
     cols = all_of(predictors),
@@ -591,7 +590,7 @@ outlier_summary
 
 **Variable Transformation**
 
-```{r transformation-check, echo=FALSE, warning=FALSE, message=FALSE}
+```{r transformation-check, echo=FALSE, message=FALSE}
 library(patchwork)
 
 compare_transform <- function(data, raw_var, transformed_var, transformed_name) {
@@ -697,7 +696,7 @@ print(
 
 ```
 
-```{r transformation-summary, echo=FALSE}
+```{r transformation-summary, echo=FALSE, message=FALSE}
 
 age_comparison <- data.frame(
   Form = c("Age", "log(Age)"),
@@ -714,7 +713,8 @@ age_comparison
 train_clean <- train_data %>%
   mutate(
     # Transformation supported by EDA
-    LogAge = log(Age), Water2 = Water^2,
+    LogAge = log(Age), 
+    Water2 = Water^2,
 
     # Zero-presence indicators
     SlagPresent = as.integer(BlastFurnaceSlag > 0),
@@ -726,7 +726,8 @@ train_clean <- train_data %>%
 
 test_clean <- test_data %>%
   mutate(
-    LogAge = log(Age), Water2 = Water^2,
+    LogAge = log(Age), 
+    Water2 = Water^2,
 
     SlagPresent = as.integer(BlastFurnaceSlag > 0),
     FlyAshPresent = as.integer(FlyAsh > 0),
@@ -746,6 +747,7 @@ x_train_raw <- as.matrix(
 x_test_raw <- as.matrix(
   test_clean[, clean_predictors, drop = FALSE]
 )
+
 # Keep response on the original MPa scale
 y_train <- train_clean[[response]]
 y_test <- test_clean[[response]]
@@ -753,53 +755,6 @@ y_test <- test_clean[[response]]
 
 foldid <- make_foldid(
   n = nrow(train_clean),
-  k = 5L,
-  seed = seeds$cv
-)
-
-train_clean_binary <- train_data %>%
-  mutate(
-    # Transformation supported by EDA
-    LogAge = log(Age), Water2 = Water^2,
-
-    # Replace zero-heavy continuous variables by binary indicators
-    BlastFurnaceSlag = as.integer(BlastFurnaceSlag > 0),
-    FlyAsh = as.integer(FlyAsh > 0),
-    Superplasticizer = as.integer(Superplasticizer > 0)
-  ) %>%
-  select(-Age)
-
-
-test_clean_binary <- test_data %>%
-  mutate(
-    LogAge = log(Age), Water2 = Water^2,
-
-    BlastFurnaceSlag = as.integer(BlastFurnaceSlag > 0),
-    FlyAsh = as.integer(FlyAsh > 0),
-    Superplasticizer = as.integer(Superplasticizer > 0)
-  ) %>%
-  select(-Age)
-
-
-binary_predictors <- setdiff(
-  names(train_clean_binary),
-  response
-)
-
-x_train_binary <- as.matrix(
-  train_clean_binary[, binary_predictors, drop = FALSE]
-)
-
-x_test_binary <- as.matrix(
-  test_clean_binary[, binary_predictors, drop = FALSE]
-)
-
-# Keep response on original MPa scale
-y_train_binary <- train_clean_binary[[response]]
-y_test_binary <- test_clean_binary[[response]]
-
-foldid_binary <- make_foldid(
-  n = nrow(train_clean_binary),
   k = 5L,
   seed = seeds$cv
 )
@@ -818,27 +773,17 @@ foldid_binary <- make_foldid(
 
 - Zero values in BlastFurnaceSlag, FlyAsh, and Superplasticizer indicate ingredient absence, so binary presence indicators were added while retaining the original dosage variables, allowing the models to distinguish between ingredient presence and dosage.
 
-- These engineered features were treated as candidate predictors and were evaluated during the subsequent feature-selection stage rather than assumed to be useful a priori.
-
-\[
-x_{\text{present}} =
-\begin{cases}
-1, & \text{if } x > 0, \\
-0, & \text{if } x \leq 0.
-\end{cases}
-\]
-
+- A quadratic term, \(Water^2\), was added because the EDA, thêm figure cite, suggested curvature in the relationship between Water and concrete strength.
 
 ## Feature Selection
 
-We use **Variance Inflation Factor (VIF)** screening and stepwise selection as selection methods. That is because:
+**Variance Inflation Factor (VIF)** screening and stepwise selection were used as selection methods in this section for the following reasons:
+
 - Although most pairwise correlations among predictors are low ($|r∣<0.45$, except $r(Water, Superplasticizer)=−0.66$). However, pairwise correlation alone may not capture multicollinearity involving multiple predictors. Therefore, VIF is needed to to assess the multicollinearity level of the predictors.
+
 - VIF only assesses multicollinearity and does not determine which predictors should be retained in the final model. Therefore, stepwise selection is also used to identify a more parsimonious set of predictors based on model fit and complexity.
 
-### VIF Screening
-
 ```{r vif, echo=FALSE}
-
 # Full model using the cleaned and engineered training data
 vif_model <- lm(
   Strength ~ .,
@@ -877,12 +822,13 @@ render_table(
 )
 ```
 
+- The VIF results indicate that **LogAge** (1.08) and **SlagPresent** (3.41) have acceptable levels of multicollinearity, while several other predictors show high VIF values. In particular, **Water** (187.87) and **Water2** (186.70) have extremely high VIFs because **Water2** is directly derived from **Water**, creating strong dependence between the polynomial terms. 
 
+- High VIFs are also observed for **FlyAsh**, **BlastFurnaceSlag**, and their presence indicators. This is expected in the results because the continuous variables and binary indicators capture related but distinct information: ingredient dosage and ingredient presence/absence, respectively.
 
-### Stepwise selection
+# Stepwise selection
 
 ```{r stepwise, echo=FALSE}
-
 full_step_model <- lm(
   Strength ~ .,
   data = train_clean
@@ -918,12 +864,41 @@ render_table(
 )
 ```
 
+- Despite the high VIF values observed for several predictors, stepwise AIC retained most of them because removing these variables would reduce model complexity but lead to a poorer model fit. 
 
+- In contrast, **SlagPresent** was excluded despite having an acceptable VIF (3.41), indicating that its exclusion was not driven by multicollinearity but by its limited contribution to the overall model fit. This may also be explained by the presence of **BlastFurnaceSlag**, which already captures the dosage information of the same ingredient. 
 
+- The remaining presence indicators, **FlyAshPresent** and **SuperplasticizerPresent**, were retained, suggesting that they provided additional information beyond their corresponding continuous dosage variables.
+
+- Therefore, **SlagPresent** was removed from the model, while the other selected predictors were retained.
+
+```{r remove-variable}
+train_clean <- train_clean %>%
+  select(-SlagPresent)
+
+test_clean <- test_clean %>%
+  select(-SlagPresent)
+
+clean_predictors <- setdiff(
+  names(train_clean),
+  response
+)
+
+x_train_raw <- as.matrix(
+  train_clean[, clean_predictors, drop = FALSE]
+)
+
+x_test_raw <- as.matrix(
+  test_clean[, clean_predictors, drop = FALSE]
+)
+
+y_train <- train_clean[[response]]
+y_test <- test_clean[[response]]
+```
 
 ## Modeling with Regularization
 
-We consider Linear Regression as the baseline model and apply Ridge, Lasso, and Elastic Net as regularized alternatives:
+The Linear Regression was considered as the baseline model and apply Ridge, Lasso, and Elastic Net as regularized alternatives in this section for the following purposes:
 
 - Linear Regression: Used as the baseline model to provide a reference for evaluating the regularized models.
 
@@ -937,9 +912,19 @@ We consider Linear Regression as the baseline model and apply Ridge, Lasso, and 
 
 ```{r linear, echo=FALSE}
 
+# Scale predictors
+
+x_prep <- fit_scaler(x_train_raw)
+x_train_scale <- apply_scaler(x_train_raw, x_prep)
+x_test_scale <- apply_scaler(x_test_raw, x_prep)
+train_clean_scale <- data.frame(x_train_scale)
+train_clean_scale[[response]] <- y_train
+test_clean_scale <- data.frame(x_test_scale)
+test_clean_scale[[response]] <- y_test
+
 ols_model <- lm(
   Strength ~ .,
-  data = train_clean
+  data = train_clean_scale
 )
 
 ols_summary <- summary(ols_model)$coefficients
@@ -963,12 +948,9 @@ render_table(
   caption = "OLS Baseline Model Coefficients"
 )
 
-par(mfrow = c(2, 2))
-plot(ols_model)
-
 ```
 
-The p-value of Superplasticizer is 0.0842 > 0.05, indicating that its coefficient is not statistically significant at the $\alpha=0.05$ level. In addition, Cement, BlastFurnaceSlag, FlyAsh, Water, and FineAggregate have relatively high VIF values and large coefficient estimates, suggesting that their OLS coefficients may be unstable due to multicollinearity.
+- All predictors have p<0.05, indicating statistically significant associations with Strength conditional on the other predictors. The relatively high VIF values, particularly for **Water** and **Water2**, should be considered when interpreting individual coefficients because multicollinearity can make coefficient estimates less stable.
 
 ### Ridge regression
 
@@ -1002,7 +984,7 @@ render_table(
 
 ```
 
-Most coefficients are shrunk, particularly for predictors with high VIF values, indicating that the regularization penalty effectively reduces the impact of multicollinearity. Water increases in magnitude, while CoarseAggregate and FineAggregate decrease in magnitude. This suggests coefficient redistribution among correlated predictors under Ridge regularization.
+Compared with OLS, Ridge substantially shrinks the coefficients of several predictors, especially the highly collinear variables **Water**, **Water2**, **FlyAsh**, and **BlastFurnaceSlag**. Other continuous predictors, including **Cement**, **CoarseAggregate**, **FineAggregate**, and **Superplasticizer**, are also strongly reduced. Meanwhile, larger coefficients are retained for **FlyAshPresent**, and **SuperplasticizerPresent**. This indicates a redistribution of predictive contribution among correlated variables, which helps Ridge reduce the impact of multicollinearity.
 
 ### Lasso regression
 
@@ -1036,8 +1018,7 @@ render_table(
 
 ```
 
-
-All predictors retain non-zero coefficients, so Lasso does not remove any variables at the selected $\lambda$. This is consistent with the stepwise result, where no predictors were removed. Compared with OLS, most coefficients are slightly reduced, e.g. Cement 1.2567-1.2299, BlastFurnaceSlag 0.8907-0.8641, and FlyAsh 0.5697-0.5468. This indicates that the L1 penalty provides some coefficient shrinkage, but the effect is relatively mild. Lasso coefficients remain much closer to OLS than Ridge coefficients. This suggests that the selected Lasso penalty is relatively weak and that Lasso does not substantially alter the coefficient structure of the model.
+Compared with OLS, Lasso shrinks the coefficients of most predictors toward zero, with the strongest shrinkage observed for **Water**, **Water2**, **FlyAsh**, **BlastFurnaceSlag**, and the aggregate variables. However, no coefficient is reduced to zero, so all predictors are retained in the model. Compared with Ridge, Lasso applies slightly less shrinkage overall, while preserving the same signs of the coefficients as OLS.
 
 ### Elastic Net regression
 
@@ -1107,21 +1088,20 @@ render_table(
 
 ```
 
-All predictors retain non-zero coefficients, so Elastic Net does not remove any variables like Lasso at the selected $\lambda$. Besides, the coefficients are only slightly smaller than OLS and remain very close to the Lasso estimates, indicating a relatively weak regularization effect. With $\alpha = 0.1$, the L2 component dominates the penalty, making Elastic Net more Ridge-like while still incorporating a small L1 component.
+Although Elastic Net uses a relatively low alpha of 0.2, its coefficient pattern is still similar to Lasso. Compared with OLS, most predictors are shrunk toward zero, while **LogAge**, **FlyAshPresent**, and **SuperplasticizerPresent** retain relatively larger coefficients. No predictor is eliminated, and the coefficient signs remain unchanged. The overall shrinkage is slightly weaker than Lasso, reflecting the combined L1 and L2 penalties in Elastic Net.
 
 ## Evaluation
 
-We use RMSE, MAE, and $R^2$ to evaluate the regression models. That is because:
+We use RMSE, MAE to evaluate the regression models in this section for the following reasons:
 
 - RMSE: Measures the average prediction error while giving greater weight to large errors, making it useful for detecting models with substantial prediction errors.
 - MAE: Measures the average absolute prediction error and provides an intuitive measure of the typical prediction error in the original response scale.
-- $R^2$: Measures the proportion of variation in the response explained by the model, providing an overall assessment of model fit.
 
 ```{r evaluation, echo=FALSE}
 
 ols_pred <- predict(
   ols_model,
-  newdata = test_clean
+  newdata = test_clean_scale
 )
 
 ols_metrics <- regression_metrics(
@@ -1180,19 +1160,11 @@ evaluation_table <- data.frame(
     ridge_metrics$MAE,
     lasso_metrics$MAE,
     elastic_metrics$MAE
-  ),
-  R2 = c(
-    ols_metrics$R2,
-    ridge_metrics$R2,
-    lasso_metrics$R2,
-    elastic_metrics$R2
   )
 )
 
 evaluation_table$RMSE <- round(evaluation_table$RMSE, 4)
 evaluation_table$MAE <- round(evaluation_table$MAE, 4)
-evaluation_table$R2 <- round(evaluation_table$R2, 4)
-
 render_table(
   evaluation_table,
   caption = "Test Set Performance Comparison"
@@ -1200,9 +1172,9 @@ render_table(
 
 ```
 
-All models are compared on the same held-out test set to ensure a fair evaluation. The results show that Lasso and Elastic Net achieve the best performance, with an RMSE of 0.6289 and $R^2$=0.7898, followed very closely by OLS with an RMSE of 0.6293 and $R^2$=0.7895. The differences are very small, indicating that regularization provides only a marginal improvement in generalization for this dataset.
+All models are evaluated on the same held-out test set to ensure a fair comparison. Lasso achieves the best performance, with the lowest RMSE of 7.0971 and MAE of 5.6942, followed very closely by Elastic Net and OLS. The differences are very small, indicating that regularization provides only a marginal improvement in generalization for this dataset.
 
-The results also illustrate the bias–variance trade-off. OLS has no regularization, resulting in low bias but potentially higher variance due to multicollinearity. Lasso and Elastic Net introduce regularization, slightly increasing bias while reducing coefficient variance, which may explain their marginally better test performance. In contrast, Ridge produces a higher RMSE of 0.6446, suggesting that its selected level of shrinkage introduces more bias than the reduction in variance can compensate for.
+The results also illustrate the bias–variance trade-off. OLS has no regularization, resulting in low bias but potentially higher variance due to multicollinearity. Lasso introduces regularization, slightly increasing bias while reducing coefficient variance, which may explain its marginally better test performance. Ridge produces the highest RMSE and MAE, suggesting that its stronger shrinkage introduces more bias than the reduction in variance can compensate for.
 
 # Part II - ToothGrowth
 
