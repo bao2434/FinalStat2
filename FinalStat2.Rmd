@@ -1,14 +1,14 @@
 ---
 title: "Final Project - Applied Statistics for Engineering and Scientists II"
-subtitle: Group 6
-date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+subtitle: "Group 6"
+author:
+  - "Nguyễn Thanh An - 24125024"
+  - "Nguyễn Chí Bảo - 24125025"
+  - "Trần Nguyễn Khánh Bình - 24125026"
+  - "Phạm Vân Trang - 24125046"
+  - "Quách Thiên Lạc - 24125092"
+date: "2026-07-18"
 output:
-  pdf_document:
-    toc: true
-    toc_depth: '3'
-  bookdown::html_document2:
-    toc: true
-    toc_depth: 3
   bookdown::pdf_document2:
     toc: true
     number_sections: true
@@ -580,17 +580,17 @@ outlier_summary
 
 - Potential outliers were identified from the training set using the \(1.5\times IQR\) rule.
 
-- Most variables contained very few flagged observations. Water, Superplasticizer, FineAggregate, BlastFurnaceSlag, and Strength each had less than 1% of observations outside the IQR bounds.
+- Most variables contained very few flagged observations. **Water**, **Superplasticizer**, **FineAggregate**, **BlastFurnaceSlag**, and **Strength** each had less than 1% of observations outside the IQR bounds.
 
 - **Age** had the largest number of flagged observations (43 observations, 5.22%). However, its strongly right-skewed distribution suggests that these points mainly represent the upper tail of the age distribution rather than obvious data errors.
 
 - The flagged observations were retained because no clear evidence indicated measurement or data-entry errors. Removing valid extreme concrete mixtures could discard useful information and bias the subsequent models.
 
-- The skewness of Age will instead be addressed by investigating a log transformation.
+- The skewness of **Age** will instead be addressed by investigating a log transformation.
 
 **Variable Transformation**
 
-```{r transformation-check, echo=FALSE, message=FALSE}
+```{r transformation-check, echo=FALSE, message=FALSE, warning=FALSE}
 library(patchwork)
 
 compare_transform <- function(data, raw_var, transformed_var, transformed_name) {
@@ -773,13 +773,13 @@ foldid <- make_foldid(
 
 - Zero values in BlastFurnaceSlag, FlyAsh, and Superplasticizer indicate ingredient absence, so binary presence indicators were added while retaining the original dosage variables, allowing the models to distinguish between ingredient presence and dosage.
 
-- A quadratic term, \(Water^2\), was added because the EDA, thêm figure cite, suggested curvature in the relationship between Water and concrete strength.
+- A quadratic term, \(Water^2\), was added because the EDA suggested curvature in the relationship between Water and concrete strength.
 
 ## Feature Selection
 
 **Variance Inflation Factor (VIF)** screening and stepwise selection were used as selection methods in this section for the following reasons:
 
-- Although most pairwise correlations among predictors are low ($|r∣<0.45$, except $r(Water, Superplasticizer)=−0.66$). However, pairwise correlation alone may not capture multicollinearity involving multiple predictors. Therefore, VIF is needed to to assess the multicollinearity level of the predictors.
+- Although most pairwise correlations among predictors are low ($\lvert r \rvert <0.45$, except $r(Water, Superplasticizer)=-0.66$). However, pairwise correlation alone may not capture multicollinearity involving multiple predictors. Therefore, VIF is needed to to assess the multicollinearity level of the predictors.
 
 - VIF only assesses multicollinearity and does not determine which predictors should be retained in the final model. Therefore, stepwise selection is also used to identify a more parsimonious set of predictors based on model fit and complexity.
 
@@ -822,7 +822,7 @@ render_table(
 )
 ```
 
-- The VIF results indicate that **LogAge** (1.08) and **SlagPresent** (3.41) have acceptable levels of multicollinearity, while several other predictors show high VIF values. In particular, **Water** (187.87) and **Water2** (186.70) have extremely high VIFs because **Water2** is directly derived from **Water**, creating strong dependence between the polynomial terms. 
+- The VIF results indicate that **LogAge** (1.08) and **SlagPresent** (3.41) have acceptable levels of multicollinearity, while several other predictors show high VIF values. In particular, **Water** (187.87) and **Water2** (186.70) have extremely high VIFs because **Water2** is directly derived from **Water**, creating strong dependence between the polynomial terms, which is expected. 
 
 - High VIFs are also observed for **FlyAsh**, **BlastFurnaceSlag**, and their presence indicators. This is expected in the results because the continuous variables and binary indicators capture related but distinct information: ingredient dosage and ingredient presence/absence, respectively.
 
@@ -872,7 +872,7 @@ render_table(
 
 - Therefore, **SlagPresent** was removed from the model, while the other selected predictors were retained.
 
-```{r remove-variable}
+```{r remove-variable, echo=FALSE}
 train_clean <- train_clean %>%
   select(-SlagPresent)
 
@@ -1054,11 +1054,10 @@ elastic_results <- do.call(
   elastic_results
 )
 
-best_elastic <- elastic_results[
-  which.min(elastic_results$cv_mse),
-]
+best_elastic <- elastic_results[which.min(elastic_results$cv_mse), , drop = FALSE]
+rownames(best_elastic) <- NULL
 
-best_elastic
+render_table(best_elastic, "Best Elastic Net model")
 
 elastic_cv <- fit_cv_glmnet(
   x = x_train_raw,
@@ -1323,7 +1322,7 @@ print(tooth_histogram)
 
 The box plots show a strong upward dose pattern for both delivery methods. The interaction plot makes the convergence especially clear: the OJ and VC profiles are separated at 0.5 and 1 mg/day but meet at 2 mg/day. The histograms show the raw response distribution for each supplement; because each histogram pools the dose groups, their spread reflects both within-dose variation and the strong shift in location across doses.
 
-## ANOVA/Factorial Design Analysis
+## ANOVA Analysis
 
 ### Choice of analysis strategy
 
@@ -1375,38 +1374,7 @@ render_table(anova_df, "ANOVA result")
 
 
 ```
-The ANOVA results show that both supplement type and Vitamin C dose have significant effects on tooth length, with p-values $$< 0.05$$. This indicates that mean tooth length differs between the two supplement types and among the different Vitamin C dose levels. Furthermore, the interaction between supplement type and Vitamin C dose is also significant ($$p<0.05$$), indicating that the effect of one factor on tooth length depends on the level of the other factor. In particular, the effect of Vitamin C dose on tooth length differs depending on whether the supplement is administered as vitamin C (VC) or orange juice (OJ).
-
-The following partial eta-squared values supplement the significance tests by measuring the size of each effect relative to that effect plus the residual variation.
-
-```{r toothgrowth-effect-sizes, echo=FALSE}
-tooth_anova_raw <- summary(model)[[1]]
-tooth_error_ss <- tooth_anova_raw["Residuals", "Sum Sq"]
-
-tooth_effect_sizes <- data.frame(
-  Effect = c("Supplement", "Dose", "Supplement x Dose"),
-  Partial_Eta_Squared = c(
-    tooth_anova_raw["supp", "Sum Sq"],
-    tooth_anova_raw["dose", "Sum Sq"],
-    tooth_anova_raw["supp:dose", "Sum Sq"]
-  )
-) |>
-  mutate(
-    Partial_Eta_Squared = round(
-      Partial_Eta_Squared / (Partial_Eta_Squared + tooth_error_ss),
-      3
-    )
-  )
-
-render_table(
-  tooth_effect_sizes,
-  caption = "Partial Eta-Squared Effect Sizes"
-)
-```
-
-Dose has the largest partial eta-squared (0.773), indicating that it is the dominant source of systematic variation in this experiment. Because the interaction is significant, however, the supplement main effect is only an average across dose levels and should not be interpreted as showing that OJ is uniformly better than VC.
-
-More specifically, the supplement effect is $F(1,54)=15.572$ with $p=0.000231$; the marginal means are 20.663 for OJ and 16.963 for VC. The dose effect is $F(2,54)=92.000$ with $p<0.0001$, and the marginal means increase from 10.605 at 0.5 mg/day to 19.735 at 1 mg/day and 26.100 at 2 mg/day. The interaction is $F(2,54)=4.107$ with $p=0.0219$; the OJ-minus-VC mean difference is 5.25 at 0.5 mg/day, 5.93 at 1 mg/day, and $-0.08$ at 2 mg/day. Thus, the observed OJ advantage occurs at the two lower doses and is essentially absent at 2 mg/day.
+The ANOVA results show that both supplement type and Vitamin C dose have significant effects on tooth length, with p-values $< 0.05$. This indicates that mean tooth length differs between the two supplement types and among the different Vitamin C dose levels. Furthermore, the interaction between supplement type and Vitamin C dose is also significant ($p<0.05$), indicating that the effect of one factor on tooth length depends on the level of the other factor. In particular, the effect of Vitamin C dose on tooth length differs depending on whether the supplement is administered as vitamin C (VC) or orange juice (OJ).
 
 ### Model adequacy
 
@@ -1452,7 +1420,7 @@ render_table(levene_result, "Result of Levene's Test")
 ```
 By examining the residual plot, we observe that the residuals are distributed around the reference line with a roughly equal vertical spread across the fitted values, suggesting that the variances are approximately constant. Furthermore, Levene's test, which has the null hypothesis that all groups have equal variances, produces a p-value of $0.1484$. Since this p-value is greater than $0.05$, we fail to reject the null hypothesis. Therefore, these results suggest that **the assumption of homogeneity of variance is satisfied**.
 
-```{r independence, echo=FALSE}
+```{r independence, echo=FALSE,warning=FALSE, message=FALSE}
 
 plot(residuals(model),
      type = "p",
@@ -1474,11 +1442,20 @@ dw_result <- data.frame(
 render_table(dw_result, "Result of Durbin–Watson Test")
 
 ```
-When plotting residuals against observation order, the points are randomly distributed around zero with no apparent systematic pattern, suggesting that the residuals are independent. The Durbin–Watson test, which has the null hypothesis that the residuals are independent, gives a p-value of $$0.2868$$. Since $$p>0.05$$, we fail to reject the null hypothesis. Therefore, there is no significant evidence of autocorrelation, **supporting the assumption of independence**.
+When plotting residuals against observation order, the points are randomly distributed around zero with no apparent systematic pattern, suggesting that the residuals are independent. The Durbin–Watson test, which has the null hypothesis that the residuals are independent, gives a p-value of $0.2868$. Since $p>0.05$, we fail to reject the null hypothesis. Therefore, there is no significant evidence of autocorrelation, **supporting the assumption of independence**.
 
 ## Post-hoc analysis
 
 The ANOVA results indicate significant effects for both factors and their interaction. However, since supplement type has only two levels, there is no need for a post-hoc pairwise comparison for this factor. Therefore, Tukey’s HSD test will be performed for **dose** and for the **combination of supplement type and dose**.
+
+To interpret the difference between two levels or treatment combinations, we divide their difference by the mean tooth length:
+
+$$
+\text{diff\_mean}
+=
+\frac{\text{diff}}
+{\text{ mean of tooth length}}
+$$
 
 ### Tukey’s HSD on dose
 
@@ -1491,13 +1468,8 @@ tukey_dose$diff_mean <- tukey_dose$diff / mean_len
 render_table(tukey_dose, "Resutls of Tukey's HSD on Dose")
 
 ```
-$$
-\text{diff\_mean}
-=
-\frac{\text{diff}}
-{\text{ mean of tooth length}}
-$$
-The results show that all three pairwise comparisons have p-values below $$0.05$$, indicating that the differences between all dose levels are statistically significant. Furthermore, since all differences in means are positive, higher doses of Vitamin C are associated with greater tooth length. Increasing the dose from 0.5 to 2 mg resulted in a great increase of approximately $$0.824$$ times the mean tooth length, indicating a substantial effect of dose.
+
+The results show that all three pairwise comparisons have p-values below $0.05$, indicating that the differences between all dose levels are statistically significant. Furthermore, since all differences in means are positive, higher doses of Vitamin C are associated with greater tooth length. Increasing the dose from 0.5 to 2 mg resulted in a great increase of approximately $0.824$ times the mean tooth length, indicating a substantial effect of dose.
 
 ### Tukey's HSD on interaction between supplement type and dose
 
@@ -1665,11 +1637,11 @@ ggplot2::ggplot(
   )
 
 ```
-Except for the comparisons VC.1 vs OJ.0.5, OJ.2 vs OJ.1, VC.2 vs OJ.1, and VC.2 vs OJ.2, all other pairwise comparisons are statistically significant ($$p<0.05$$). The heatmap shows the mean difference in tooth length between the group in each row and the group in each column, with non-significant differences greyed out.
+Except for the comparisons VC.1 vs OJ.0.5, OJ.2 vs OJ.1, VC.2 vs OJ.1, and VC.2 vs OJ.2, all other pairwise comparisons are statistically significant ($p<0.05$). The heatmap shows the mean difference in tooth length between the group in each row and the group in each column, with non-significant differences greyed out.
 
 From the heatmap, we can observe that higher doses are generally associated with greater tooth length. Additionally, supplementation with orange juice tends to result in longer tooth length than vitamin C at comparable doses. However, this trend is less consistent when there is a large difference in dose, such as between 0.5 mg and 2 mg, where the effect of dose appears to outweigh the effect of supplement type.
 
-For orange juice supplementation, the variation in tooth length across different doses is less pronounced than for ascorbic acid. In particular, when the dose increases from 0.5 mg to 2 mg, ascorbic acid produces a difference equivalent to $$0.97$$ times the mean tooth length, whereas orange juice produces a smaller difference of $$0.68$$ times the mean tooth length.
+For orange juice supplementation, the variation in tooth length across different doses is less pronounced than for ascorbic acid. In particular, when the dose increases from 0.5 mg to 2 mg, ascorbic acid produces a difference equivalent to $0.97$ times the mean tooth length, whereas orange juice produces a smaller difference of $0.68$ times the mean tooth length.
 
 ## Conclusion and Evaluation
 
