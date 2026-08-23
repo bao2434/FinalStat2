@@ -17,7 +17,7 @@ author: |
   Quách Thiên Lạc - 24125092
   \end{minipage}
 
-date: "2026-07-23"
+date: "2026-08-23"
 
 output:
   bookdown::pdf_document2:
