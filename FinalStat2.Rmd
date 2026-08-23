@@ -930,17 +930,9 @@ The Linear Regression was considered as the baseline model and apply Ridge, Lass
 
 # Scale predictors
 
-x_prep <- fit_scaler(x_train_raw)
-x_train_scale <- apply_scaler(x_train_raw, x_prep)
-x_test_scale <- apply_scaler(x_test_raw, x_prep)
-train_clean_scale <- data.frame(x_train_scale)
-train_clean_scale[[response]] <- y_train
-test_clean_scale <- data.frame(x_test_scale)
-test_clean_scale[[response]] <- y_test
-
 ols_model <- lm(
   Strength ~ .,
-  data = train_clean_scale
+  data = train_clean
 )
 
 ols_summary <- summary(ols_model)$coefficients
@@ -1000,7 +992,7 @@ render_table(
 
 ```
 
-Compared with OLS, Ridge substantially shrinks the coefficients of several predictors, especially the highly collinear variables **Water**, **Water2**, **FlyAsh**, and **BlastFurnaceSlag**. Other continuous predictors, including **Cement**, **CoarseAggregate**, **FineAggregate**, and **Superplasticizer**, are also strongly reduced. Meanwhile, larger coefficients are retained for **FlyAshPresent**, and **SuperplasticizerPresent**. This indicates a redistribution of predictive contribution among correlated variables, which helps Ridge reduce the impact of multicollinearity.
+Compared with OLS, Ridge substantially shrinks the coefficients of several predictors, especially the highly collinear variables **Water**, **Water2** and **Superplasticizer**. Other continuous predictors, including **CoarseAggregate**, **FineAggregate**, **BlasFurnaceSlag** and **FlyAsh**, are also strongly reduced. Meanwhile, larger coefficients are retained for **LogAge** **FlyAshPresent**, and **SuperplasticizerPresent**. This indicates a redistribution of predictive contribution among correlated variables, which helps Ridge reduce the impact of multicollinearity.
 
 ### Lasso regression
 
@@ -1034,7 +1026,7 @@ render_table(
 
 ```
 
-Compared with OLS, Lasso shrinks the coefficients of most predictors toward zero, with the strongest shrinkage observed for **Water**, **Water2**, **FlyAsh**, **BlastFurnaceSlag**, and the aggregate variables. However, no coefficient is reduced to zero, so all predictors are retained in the model. Compared with Ridge, Lasso applies slightly less shrinkage overall, while preserving the same signs of the coefficients as OLS.
+Compared with OLS, Lasso shrinks the coefficients of most predictors toward zero, with the strongest shrinkage observed for **Water**, **Water2**, **FlyAsh** and the aggregate variables. However, no coefficient is reduced to zero, so all predictors are retained in the model. Compared with Ridge, Lasso applies slightly less shrinkage overall, while preserving the same signs of the coefficients as OLS.
 
 ### Elastic Net regression
 
@@ -1116,7 +1108,7 @@ We use RMSE, MAE to evaluate the regression models in this section for the follo
 
 ols_pred <- predict(
   ols_model,
-  newdata = test_clean_scale
+  newdata = test_clean
 )
 
 ols_metrics <- regression_metrics(
